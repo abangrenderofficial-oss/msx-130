@@ -318,13 +318,14 @@ def _extract_info_sync(url: str, source: str) -> dict[str, Any]:
                 "YouTube low-memory metadata mode exhausted without public-client fan-out: error=%s",
                 first_error,
             )
-            try:
-                return _youtube_oembed_info_sync(url)
-            except Exception as embed_error:
-                logging.warning(
-                    "YouTube oEmbed fallback failed: error_type=%s",
-                    type(embed_error).__name__,
-                )
+            if _env_truthy("MUSIX_YOUTUBE_OEMBED_FALLBACK_ENABLED"):
+                try:
+                    return _youtube_oembed_info_sync(url)
+                except Exception as embed_error:
+                    logging.warning(
+                        "YouTube oEmbed fallback failed: error_type=%s",
+                        type(embed_error).__name__,
+                    )
 
             raise MusicDownloadError(
                 "\n--- YouTube low-memory metadata retries ---\n" + "\n".join(errors)
@@ -348,15 +349,18 @@ def _extract_info_sync(url: str, source: str) -> dict[str, Any]:
                     client,
                     fallback_error,
                 )
-        try:
-            metadata = _youtube_oembed_info_sync(url)
-            logging.info("YouTube title obtained via oEmbed; audio source unverified")
-            return metadata
-        except Exception as embed_error:
-            logging.warning(
-                "YouTube oEmbed fallback failed: error_type=%s",
-                type(embed_error).__name__,
-            )
+        # Explicitly opt in only after a real media backend passes extraction.
+        # If all audio workers are blocked, oEmbed otherwise prolongs failures.
+        if _env_truthy("MUSIX_YOUTUBE_OEMBED_FALLBACK_ENABLED"):
+            try:
+                metadata = _youtube_oembed_info_sync(url)
+                logging.info("YouTube title obtained via oEmbed; audio source unverified")
+                return metadata
+            except Exception as embed_error:
+                logging.warning(
+                    "YouTube oEmbed fallback failed: error_type=%s",
+                    type(embed_error).__name__,
+                )
 
         raise MusicDownloadError(
             "\n--- YouTube client retries ---\n" + "\n".join(errors)
