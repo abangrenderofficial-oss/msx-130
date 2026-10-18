@@ -51,7 +51,11 @@ async def test_same_deployment_owner_login_worker_locked(monkeypatch, tmp_path):
         csrf = (await ok.json())["csrf"]
         assert (await client.post("/login", headers=origin, json={"code": code})).status == 401
         state = await client.get("/api/status")
-        assert (await state.json())["status"] == "WORKER_OFFLINE"
+        blocked = await state.json()
+        assert blocked["status"] == "WORKER_NOT_CONFIGURED"
+        assert blocked["worker"] == "WORKER_OFFLINE"
+        assert blocked["can_open_browser"] is False
+        assert blocked["blocker"] == "CHROMIUM_SANDBOX_UNAVAILABLE"
         secured = {**origin, "X-CSRF-Token": csrf}
         response = await client.post("/api/browser-ticket", headers=secured, json={})
         assert response.status == 503

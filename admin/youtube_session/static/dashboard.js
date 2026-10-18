@@ -22,20 +22,34 @@ async function refresh() {
   }
   const s = status.status || "WORKER_OFFLINE";
   const pretty = {
-    CONNECTED:"Connected", DISCONNECTED:"Not connected", UNVERIFIED:"Needs verification",
-    RECONNECT_REQUIRED:"Reconnect required", WORKER_OFFLINE:"Worker offline",
+    CONNECTED:"Disambungkan", DISCONNECTED:"Belum disambungkan", UNVERIFIED:"Perlu pengesahan",
+    RECONNECT_REQUIRED:"Login semula diperlukan", WORKER_OFFLINE:"Worker belum aktif",
+    WORKER_NOT_CONFIGURED:"Browser belum tersedia",
   };
+  const ready = status.worker === "RUNNING" && status.can_open_browser !== false;
+  const blocked = !ready;
+  const reason = status.blocker === "CHROMIUM_SANDBOX_UNAVAILABLE"
+    ? "Hosting Musix belum menyokong Chromium bersandbox. Login Google dan simpan cookies belum diaktifkan."
+    : "Browser worker belum dapat dihubungi. Sila semak status konfigurasi worker.";
+  $("#workerExplanation").textContent = blocked ? reason : "Browser worker bersambung. Sahkan sesi Google sebelum digunakan.";
+  $("#statusMessage").textContent = blocked
+    ? "Belum siap: " + reason + " Website dan bot Telegram tetap berfungsi."
+    : "Worker telah bersambung. Buka browser untuk login Google melalui halaman sebenar.";
+  $("#controlStatus").textContent = blocked ? "Belum aktif" : "Sedia";
+  $("#googleLoginStatus").textContent = blocked ? "Belum tersedia" : "Perlu pengesahan";
+  $("#cookieStorageStatus").textContent = status.profile_present ? "Profil wujud" : "Belum tersedia";
   $("#accountStatus").textContent = pretty[s] || s;
   $("#sessionPill").textContent = pretty[s] || s;
-  $("#accountDesc").textContent = s === "CONNECTED" ? "YouTube interface verified" : "Manual sign-in or validation may be needed";
-  $("#accountName").textContent = s === "CONNECTED" ? "YouTube session verified" : "Google account not verified";
-  $("#workerStatus").textContent = status.worker === "RUNNING" ? "Running" : "Offline";
-  $("#health").textContent = status.worker === "RUNNING" ? "Healthy" : "Needs attention";
-  $("#profileStatus").textContent = status.profile_present ? "Profile present" : "No profile";
-  $("#lastChecked").textContent = status.last_checked ? new Date(status.last_checked * 1000).toLocaleString() : "Never";
-  $("#verify").disabled = status.worker !== "RUNNING";
-  $("#connect").disabled = status.worker !== "RUNNING";
-  $("#revoke").disabled = status.worker !== "RUNNING";
+  $("#accountDesc").textContent = s === "CONNECTED" ? "Sesi YouTube telah disahkan" : "Sesi Google belum disahkan";
+  $("#accountName").textContent = s === "CONNECTED" ? "Sesi Google disahkan" : "Akaun Google belum disambungkan";
+  $("#workerStatus").textContent = status.worker === "RUNNING" ? "Berjalan" : "Belum aktif";
+  $("#health").textContent = status.worker === "RUNNING" ? "Bersambung" : "Belum tersedia";
+  $("#profileStatus").textContent = status.profile_present ? "Profil wujud" : "Tiada profil";
+  $("#lastChecked").textContent = status.last_checked ? new Date(status.last_checked * 1000).toLocaleString() : "Belum pernah";
+  $("#verify").disabled = blocked;
+  $("#connect").disabled = blocked;
+  $("#revoke").disabled = blocked;
+  $("#connect").title = blocked ? "Browser worker belum selamat untuk digunakan" : "Buka browser";
   $("#activityList").replaceChildren();
   for (const event of events.events || []) {
     const row = document.createElement("div");
@@ -46,7 +60,7 @@ async function refresh() {
     row.append(title, time);
     $("#activityList").append(row);
   }
-  if (!(events.events || []).length) $("#activityList").textContent = "No activity yet";
+  if (!(events.events || []).length) $("#activityList").textContent = "Belum ada aktiviti";
 }
 
 async function init() {
