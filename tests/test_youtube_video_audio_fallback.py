@@ -113,7 +113,7 @@ def test_corrupt_mp3_rejected(tmp_path):
         fallback._verified_mp3(str(tmp_path / "source.%(ext)s"))
 
 
-@pytest.mark.skipif(shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None, reason="FFmpeg unavailable")
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="FFmpeg unavailable")
 def test_real_synthetic_mp3_validation(tmp_path):
     path = tmp_path / "source.mp3"
     subprocess.run([
