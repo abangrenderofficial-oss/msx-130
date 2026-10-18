@@ -12,11 +12,22 @@ def test_clean_youtube_title_keeps_normal_title():
 
 
 def test_fast_worker_can_be_disabled_without_affecting_cache(monkeypatch):
+    # Legacy worker behavior can still be requested by switching video-first off.
+    monkeypatch.setenv("MUSIX_YOUTUBE_VIDEO_FIRST", "0")
     monkeypatch.delenv("MUSIX_YOUTUBE_FAST_WORKER_ENABLED", raising=False)
     assert _youtube_fast_worker_enabled() is True
     monkeypatch.setenv("MUSIX_YOUTUBE_FAST_WORKER_ENABLED", "0")
     assert _youtube_fast_worker_enabled() is False
     monkeypatch.setenv("MUSIX_YOUTUBE_FAST_WORKER_ENABLED", "1")
+    assert _youtube_fast_worker_enabled() is True
+
+
+def test_video_first_skips_remote_audio_worker(monkeypatch):
+    monkeypatch.setenv("MUSIX_YOUTUBE_FAST_WORKER_ENABLED", "1")
+    monkeypatch.setenv("MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED", "1")
+    monkeypatch.setenv("MUSIX_YOUTUBE_VIDEO_FIRST", "1")
+    assert _youtube_fast_worker_enabled() is False
+    monkeypatch.setenv("MUSIX_YOUTUBE_VIDEO_FIRST", "0")
     assert _youtube_fast_worker_enabled() is True
 
 
