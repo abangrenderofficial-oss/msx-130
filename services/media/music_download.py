@@ -2052,6 +2052,23 @@ async def _download_mp3(
     out_template = os.path.join(work_dir, "source.%(ext)s")
 
     if source == "youtube":
+        # Musix-only rescue; never imports/calls MediaX.
+        video_fallback_error: Exception | None = None
+        video_fallback_attempted = False
+        video_fallback_enabled = (
+            os.getenv("MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED", "1")
+            .strip().lower() not in {"0", "false", "no", "off"}
+        )
+
+        async def try_video_audio_fallback() -> str:
+            from services.media.youtube_video_audio_fallback import (
+                download_youtube_video_as_mp3,
+            )
+            return await asyncio.to_thread(
+                download_youtube_video_as_mp3, url, out_template,
+                bitrate_kbps=bitrate_kbps,
+            )
+
         # Bot Hosting may extract directly, using its local cookie file and Deno.
         # On older Render deployments leave this disabled to preserve routing.
         local_error: Exception | None = None
@@ -2072,6 +2089,17 @@ async def _download_mp3(
                     str(exc)[-350:],
                 )
                 _clear_ytdlp_outputs(out_template)
+                if video_fallback_enabled:
+                    video_fallback_attempted = True
+                    try:
+                        return await try_video_audio_fallback()
+                    except Exception as video_exc:
+                        video_fallback_error = video_exc
+                        logging.warning(
+                            "Local video-to-audio fallback failed; retaining worker path: error=%s",
+                            str(video_exc)[-350:],
+                        )
+                        _clear_ytdlp_outputs(out_template)
 
         # Legacy worker and public relays remain available when local extraction
         # is blocked by a YouTube upstream authentication/IP challenge.
@@ -2143,7 +2171,18 @@ async def _download_mp3(
             )
         except Exception as relay_error:
             _clear_ytdlp_outputs(out_template)
+            if video_fallback_enabled and not video_fallback_attempted:
+                try:
+                    return await try_video_audio_fallback()
+                except Exception as video_exc:
+                    video_fallback_error = video_exc
+                    logging.warning(
+                        "Video-to-audio fallback failed after relays: error=%s",
+                        str(video_exc)[-350:],
+                    )
+                    _clear_ytdlp_outputs(out_template)
             raise MusicDownloadError(
+                f"Video-to-audio fallback: {video_fallback_error}\\n"
                 f"Local YouTube: {local_error}\n"
                 f"--- External worker ---\n{worker_error}\n"
                 f"--- Cobalt fallback ---\n{cobalt_error}\n"
