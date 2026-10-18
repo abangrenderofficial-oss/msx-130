@@ -1332,21 +1332,38 @@ async def write_message(message: types.Message, state: FSMContext):
 
 
 async def clear_downloads_and_notify():
+    """Run routine cleanup silently; notify admins only on a real failure.
+
+    Manual cleanup via the admin button still displays its full report.
+    A busy download queue is an expected skip, not an error.
+    """
+    failures: list[str] = []
     try:
-        message = await _cleanup_downloads_once()
-    except Exception as e:
-        message = f"An error occurred while clearing the folder: {e}"
+        result = await _cleanup_downloads_once()
+        if result.startswith("The folder '") and result.endswith(" does not exist."):
+            failures.append("Downloads folder is missing.")
+            logging.error("Automatic downloads cleanup could not run: %s", result)
+        else:
+            logging.info("Automatic downloads cleanup: %s", result)
+    except Exception as exc:
+        logging.error("Automatic downloads cleanup failed: %s", exc)
+        failures.append(f"Downloads cleanup failed ({type(exc).__name__}).")
 
     try:
         deleted_files = await db.cleanup_expired_files()
         if deleted_files > 0:
             logging.event("file_cache_cleanup", deleted=deleted_files)
-            message += f"\nCleaned up {deleted_files} expired file cache entries."
-    except Exception as e:
-        logging.error("Failed to clean up expired file cache entries: %s", e)
+        logging.info("Expired database file cache entries removed: %s", deleted_files)
+    except Exception as exc:
+        logging.error("Failed to clean up expired file cache entries: %s", exc)
+        failures.append(f"Expired file cache cleanup failed ({type(exc).__name__}).")
 
+    if not failures:
+        return  # No Telegram messages for routine successful or skipped cleanup.
+
+    alert = "⚠️ MusiX Auto Cleanup error:\n" + "\n".join(failures)
     for admin_id in ADMINS_UID:
         try:
-            await bot.send_message(chat_id=admin_id, text=message)
-        except Exception as e:
-            logging.error("Failed to send a message to admin %s: %s", admin_id, e)
+            await bot.send_message(chat_id=admin_id, text=alert)
+        except Exception as exc:
+            logging.error("Failed to notify admin %s about cleanup error: %s", admin_id, exc)
