@@ -210,20 +210,12 @@ MAX_FILE_SIZE = _read_int_env("MAX_FILE_SIZE") or int(1.5 * 1024 * 1024 * 1024)
 BOT_COMMANDS = [
     {"command": "start", "description": "Start MP3 Music Bot"},
     {"command": "help", "description": "Supported music links and tips"},
-    {"command": "search", "description": "Cari lagu"},
-    {"command": "playall", "description": "Hantar semua lagu private dari awal"},
-    {"command": "clearall", "description": "Bersihkan chat dan kekalkan audio sahaja"},
+    {"command": "clearall", "description": "Bersihkan chat, semua audio kekal"},
 ]
 
 GROUP_MUSIC_COMMANDS = [
-    {"command": "connectmusic", "description": "Connect bot dengan group playlist"},
-    {"command": "clearlink", "description": "Buang semua link asal yang sudah diproses"},
-    {"command": "clearall", "description": "Bersihkan group dan kekalkan audio sahaja"},
-    {"command": "playlist", "description": "Lihat playlist group yang tersimpan"},
-    {"command": "playall", "description": "Hantar playlist group dari lagu pertama"},
-    {"command": "search", "description": "Cari lagu untuk tambah ke playlist"},
-    {"command": "playsync", "description": "Info sesi dengar bersama"},
-    {"command": "stopsync", "description": "Keluar daripada sesi dengar bersama"},
+    {"command": "connectmusic", "description": "Connect bot dengan Music Group"},
+    {"command": "clearall", "description": "Bersihkan group, semua audio kekal"},
 ]
 
 ADMINS_UID = [ADMIN_ID]
