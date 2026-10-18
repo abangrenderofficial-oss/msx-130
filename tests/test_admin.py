@@ -8,6 +8,61 @@ from handlers import admin
 
 
 @pytest.mark.asyncio
+async def test_scheduled_cleanup_reports_real_filesystem_failure(monkeypatch):
+    send_message = AsyncMock()
+    cleanup_db = AsyncMock(return_value=0)
+    monkeypatch.setattr(admin, "ADMINS_UID", [100, 200])
+    monkeypatch.setattr(admin, "bot", SimpleNamespace(send_message=send_message))
+    monkeypatch.setattr(admin, "db", SimpleNamespace(cleanup_expired_files=cleanup_db))
+    monkeypatch.setattr(
+        admin, "_cleanup_downloads_once",
+        AsyncMock(side_effect=PermissionError("Cannot access file")),
+    )
+
+    await admin.clear_downloads_and_notify()
+
+    cleanup_db.assert_awaited_once()
+    assert send_message.await_count == 2
+    for call in send_message.await_args_list:
+        assert "MusiX Auto Cleanup error" in call.kwargs["text"]
+        assert "PermissionError" in call.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_scheduled_cleanup_reports_database_failure(monkeypatch):
+    send_message = AsyncMock()
+    monkeypatch.setattr(admin, "ADMINS_UID", [100])
+    monkeypatch.setattr(admin, "bot", SimpleNamespace(send_message=send_message))
+    monkeypatch.setattr(
+        admin, "db",
+        SimpleNamespace(cleanup_expired_files=AsyncMock(side_effect=RuntimeError("db failed"))),
+    )
+    monkeypatch.setattr(admin, "_cleanup_downloads_once", AsyncMock(return_value="Downloads cleanup finished."))
+
+    await admin.clear_downloads_and_notify()
+
+    send_message.assert_awaited_once()
+    assert "Expired file cache cleanup failed" in send_message.await_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_scheduled_cleanup_reports_missing_download_folder(monkeypatch):
+    send_message = AsyncMock()
+    monkeypatch.setattr(admin, "ADMINS_UID", [100])
+    monkeypatch.setattr(admin, "bot", SimpleNamespace(send_message=send_message))
+    monkeypatch.setattr(admin, "db", SimpleNamespace(cleanup_expired_files=AsyncMock(return_value=0)))
+    monkeypatch.setattr(
+        admin, "_cleanup_downloads_once",
+        AsyncMock(return_value="The folder '/tmp/downloads' does not exist."),
+    )
+
+    await admin.clear_downloads_and_notify()
+
+    send_message.assert_awaited_once()
+    assert "Downloads folder is missing" in send_message.await_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
 async def test_clear_downloads_and_notify_removes_files(tmp_path, monkeypatch):
     folder = tmp_path / "downloads"
     folder.mkdir()
@@ -22,6 +77,7 @@ async def test_clear_downloads_and_notify_removes_files(tmp_path, monkeypatch):
     monkeypatch.setattr(admin, "OUTPUT_DIR", str(folder))
     monkeypatch.setattr(admin, "ADMINS_UID", [1, 2])
     monkeypatch.setattr(admin, "bot", SimpleNamespace(send_message=fake_send_message))
+    monkeypatch.setattr(admin, "db", SimpleNamespace(cleanup_expired_files=AsyncMock(return_value=0)))
     monkeypatch.setattr(admin, "_DOWNLOAD_CLEANUP_MIN_AGE_SECONDS", 0.0)
     monkeypatch.setattr(
         admin,
@@ -32,9 +88,7 @@ async def test_clear_downloads_and_notify_removes_files(tmp_path, monkeypatch):
     await admin.clear_downloads_and_notify()
 
     assert not any(path.is_file() for path in folder.iterdir())
-    assert len(sent_messages) == 2
-    assert "Removed 2 files" in sent_messages[0][1]
-    assert "0 directories" in sent_messages[0][1]
+    assert sent_messages == []  # Successful scheduled cleanup is silent.
 
 
 @pytest.mark.asyncio
@@ -53,6 +107,7 @@ async def test_clear_downloads_and_notify_removes_nested_files_and_empty_dirs(tm
     monkeypatch.setattr(admin, "OUTPUT_DIR", str(folder))
     monkeypatch.setattr(admin, "ADMINS_UID", [1])
     monkeypatch.setattr(admin, "bot", SimpleNamespace(send_message=fake_send_message))
+    monkeypatch.setattr(admin, "db", SimpleNamespace(cleanup_expired_files=AsyncMock(return_value=0)))
     monkeypatch.setattr(admin, "_DOWNLOAD_CLEANUP_MIN_AGE_SECONDS", 0.0)
     monkeypatch.setattr(
         admin,
@@ -64,7 +119,7 @@ async def test_clear_downloads_and_notify_removes_nested_files_and_empty_dirs(tm
 
     assert not old_file.exists()
     assert not nested.exists()
-    assert "Removed 1 files and 2 directories" in sent_messages[0][1]
+    assert sent_messages == []
 
 
 @pytest.mark.asyncio
@@ -82,6 +137,7 @@ async def test_clear_downloads_and_notify_skips_when_queue_busy(tmp_path, monkey
     monkeypatch.setattr(admin, "OUTPUT_DIR", str(folder))
     monkeypatch.setattr(admin, "ADMINS_UID", [1])
     monkeypatch.setattr(admin, "bot", SimpleNamespace(send_message=fake_send_message))
+    monkeypatch.setattr(admin, "db", SimpleNamespace(cleanup_expired_files=AsyncMock(return_value=0)))
     monkeypatch.setattr(
         admin,
         "get_download_queue",
@@ -91,8 +147,7 @@ async def test_clear_downloads_and_notify_skips_when_queue_busy(tmp_path, monkey
     await admin.clear_downloads_and_notify()
 
     assert file_path.exists()
-    assert len(sent_messages) == 1
-    assert "Cleanup skipped" in sent_messages[0][1]
+    assert sent_messages == []  # Busy queue is not an error.
 
 
 @pytest.mark.asyncio
