@@ -17,7 +17,6 @@ services:
       - "127.0.0.1:8765:8765"
     volumes:
       - admin-state:/state
-      - novnc-static:/srv/novnc:ro
     read_only: true
     tmpfs: [/tmp:size=64m,mode=1777]
     security_opt: [no-new-privileges:true]
@@ -44,14 +43,12 @@ services:
       - type: bind
         source: ${MUSIX_ENCRYPTED_VAULT_DIR:?Encrypted persistent mount required}
         target: /vault
-      - novnc-static:/srv/novnc
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     pids_limit: 128
     networks: [session-internal]
 volumes:
   admin-state:
-  novnc-static:
 networks:
   session-internal:
     driver: bridge
