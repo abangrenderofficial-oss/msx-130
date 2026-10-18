@@ -2091,6 +2091,25 @@ async def _download_mp3(
                 bitrate_kbps=bitrate_kbps,
             )
 
+        # VIDEO FIRST is default for this Musix branch. This does not touch
+        # the MediaX process or its database. Set VIDEO_FIRST=0 to opt out.
+        video_first = (
+            os.getenv("MUSIX_YOUTUBE_VIDEO_FIRST", "1").strip().lower()
+            not in {"0", "false", "no", "off"}
+        )
+        if video_fallback_enabled and video_first:
+            video_fallback_attempted = True
+            try:
+                logging.info("MUSIX_VIDEO_FIRST_START: fetching actual video before audio conversion")
+                return await try_video_audio_fallback()
+            except Exception as video_exc:
+                video_fallback_error = video_exc
+                logging.warning(
+                    "MUSIX_VIDEO_FIRST_FAILED; trying legacy audio paths: %s",
+                    str(video_exc)[-350:],
+                )
+                _clear_ytdlp_outputs(out_template)
+
         # Bot Hosting may extract directly, using its local cookie file and Deno.
         # On older Render deployments leave this disabled to preserve routing.
         local_error: Exception | None = None
@@ -2111,7 +2130,7 @@ async def _download_mp3(
                     str(exc)[-350:],
                 )
                 _clear_ytdlp_outputs(out_template)
-                if video_fallback_enabled:
+                if video_fallback_enabled and not video_fallback_attempted:
                     video_fallback_attempted = True
                     try:
                         return await try_video_audio_fallback()
