@@ -6,7 +6,6 @@ are forwarded; all downloaded bytes are later validated with FFprobe.
 from __future__ import annotations
 
 import ipaddress
-import os
 import re
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -77,7 +76,9 @@ def _receive(client: httpx.Client, source_url: str, dest: str, max_bytes: int) -
     written = 0
     with client.stream("GET", source_url) as response:
         response.raise_for_status()
-        if not _stream_url_ok(str(response.url)):
+        if not _stream_url_ok(str(response.url)) or any(
+            not _stream_url_ok(str(hop.url)) for hop in response.history
+        ):
             raise ValueError("Provider redirected to an unsafe stream URL")
         kind = (response.headers.get("content-type") or "").lower()
         if "text/html" in kind or "application/json" in kind:
