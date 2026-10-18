@@ -159,47 +159,45 @@ python main.py
 
 On startup the bot initializes the database schema via Alembic migrations automatically.
 
-## Musix video-to-audio rescue (experimental)
+## Musix video-first YouTube processing (experimental)
 
-Musix has an **isolated** fallback that adapts MediaX's yt-dlp + FFmpeg
-video handling; it does **not** import or change MediaX. It activates only
-when the existing YouTube audio/worker paths fail:
+Musix now explicitly attempts to **download a real video file first** when
+the existing Telegram music flow cannot reuse a cached audio file. This is
+isolated code inspired by MediaX's `bestvideo+bestaudio` downloader path;
+the MediaX bot and its repository are **not** modified.
 
-- Inspect available formats using yt-dlp metadata (no video download yet).
-- If a progressive video contains audio, prioritize known **audio bitrate**,
-  and among equivalent audio candidates choose the smallest video download.
-- If progressive formats fail/unavailable, attempt a small video + best audio
-  merge (MediaX-style); this still requires access to the audio stream.
-- Use FFmpeg to extract MP3, verify the real MP3 stream and duration with
-  FFprobe, and continue the existing Musix Telegram delivery/cache flow.
-- Limit source videos to 150 MB by default and clean up unsuccessful attempts.
+1. Scan available muxed video formats without downloading. Choose the
+   strongest known audio bitrate, then the smallest video size if equivalent.
+2. Download video+audio into a **temporary video file**. If a muxed stream
+   is unavailable, try a low-resolution video merged with the best audio
+   stream, using yt-dlp/FFmpeg as MediaX does.
+3. Verify that the actual downloaded video contains a video stream, an
+   audio stream and a duration with FFprobe. Reject silent and empty files.
+4. Only **after step 3** succeeds, use FFmpeg to extract an MP3. Verify
+   that MP3 actually contains playable audio and a duration.
+5. Remove the temporary video, pass the MP3 to Musix's existing Telegram
+   delivery and audio file-id cache.
 
-No cookie export is mandatory for this fallback, but it respects existing
-yt-dlp access settings if they have already been configured. It cannot
-circumvent YouTube authentication, IP restrictions, or DRM.
-
-Optional settings:
+This does not bypass YouTube access controls. If YouTube challenges the
+hosting IP before it provides a stream, video download still fails and
+Musix tries its existing audio/worker/relay fallbacks.
 
 ```env
 MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED=1
+MUSIX_YOUTUBE_VIDEO_FIRST=1
 MUSIX_YOUTUBE_VIDEO_AUDIO_MAX_MB=150
-# Try local yt-dlp audio before the worker; video fallback immediately follows it:
-MUSIX_YOUTUBE_LOCAL_FIRST=1
 ```
 
-With `MUSIX_YOUTUBE_LOCAL_FIRST=0`, the video fallback is the final
-attempt after the existing worker and relay fallbacks. Disable the feature
-via `MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED=0` to restore existing behavior.
+`MUSIX_YOUTUBE_VIDEO_FIRST=0` postpones video rescue until legacy audio
+attempts fail. `MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED=0` disables the
+feature entirely without affecting unrelated media sources. The video
+download size is bounded to conserve limited hosting bandwidth and disk.
+Output MP3 encoding bitrate cannot improve the underlying source quality.
 
-The displayed adaptive MP3 bitrate is an *encoding setting*, not a
-measurement of YouTube source fidelity. Higher output bitrate cannot
-restore audio detail absent from the original.
-
-Offline checks:
-`pytest -q tests/test_youtube_video_audio_fallback.py`
-(includes one real synthetic-audio FFmpeg/FFprobe validation; no YouTube
-or Telegram calls). Actual YouTube/Telegram success requires a separate
-authorized end-to-end test on the host where Musix is deployed.
+Run offline regression checks with
+`pytest -q tests/test_youtube_video_audio_fallback.py`.
+This only validates code-level behavior; **it is not a live YouTube
+download or Telegram send test**.
 
 ## YouTube Cookies
 
