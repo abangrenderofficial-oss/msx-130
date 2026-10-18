@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -95,6 +94,7 @@ async def test_video_local_upload_is_cleaned(monkeypatch, tmp_path):
     # upload and remove the tempfile, not emit a URL.
     video = tmp_path / ("ar-youtube-" + "1" * 32 + ".mp4")
     video.write_bytes(b"video" * 600)
+    monkeypatch.setattr(bridge.tempfile, "gettempdir", lambda: str(tmp_path))
     monkeypatch.setattr(bridge, "_run_original_mediax", lambda _url: {
         "status": "local_file", "filePath": str(video),
         "mediaxRevision": "08e1b510dfa7396d6b1d05561918db30c604f0c7",
@@ -103,3 +103,4 @@ async def test_video_local_upload_is_cleaned(monkeypatch, tmp_path):
     bot = FakeBot()
     output = await bridge.send_mediax_youtube_video(bot, 123, "https://youtu.be/jNQXAC9IVRw")
     assert output["strategy"] == "mediax-local-video-upload"
+    assert not video.exists()
