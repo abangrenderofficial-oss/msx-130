@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 @router.message(Command("testyoutubevideo"))
-async def test_youtube_video(message: types.Message) -> None:
+async def run_youtube_video_proof(message: types.Message) -> None:
     user = message.from_user
     if not user or int(user.id) not in ADMINS_UID or message.chat.type != "private":
         return
