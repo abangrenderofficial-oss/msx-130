@@ -49,7 +49,29 @@ def test_unknown_audio_bitrate_is_not_faked():
     assert fallback._mp3_bitrate_kbps(None, 320) == 160
 
 
-def test_download_uses_smallest_muxed_format_and_validates_audio(monkeypatch, tmp_path):
+def _simulate_two_stage_conversion(monkeypatch, calls):
+    def fake_subprocess(cmd, **_kwargs):
+        calls.append(("subprocess", cmd[0], cmd[-1]))
+        if cmd[0] == "ffmpeg":
+            Path(cmd[-1]).write_bytes(b"x" * 3000)
+            return SimpleNamespace(stdout="")
+        if cmd[0] == "ffprobe":
+            path = cmd[-1]
+            if path.endswith(".mp3"):
+                streams = [{"codec_name": "mp3", "codec_type": "audio"}]
+            else:
+                streams = [
+                    {"codec_name": "h264", "codec_type": "video"},
+                    {"codec_name": "aac", "codec_type": "audio"},
+                ]
+            return SimpleNamespace(
+                stdout=json.dumps({"streams": streams, "format": {"duration": "3"}})
+            )
+        raise AssertionError(f"Unexpected process {cmd[0]}")
+    monkeypatch.setattr(fallback.subprocess, "run", fake_subprocess)
+
+
+def test_download_uses_smallest_muxed_video_then_extracts_audio(monkeypatch, tmp_path):
     calls = []
 
     class FakeDL:
@@ -61,27 +83,32 @@ def test_download_uses_smallest_muxed_format_and_validates_audio(monkeypatch, tm
             return False
         def extract_info(self, _url, download=False):
             assert download is False
-            return {"formats": [_format("1080", 1080, 192, 10000), _format("144", 144, 192, 1000)]}
+            return {"formats": [
+                _format("1080", 1080, 192, 10000),
+                _format("144", 144, 192, 1000),
+            ]}
         def download(self, _urls):
-            calls.append(self.opts)
-            filename = self.opts["outtmpl"].replace(".%(ext)s", ".mp3")
-            Path(filename).write_bytes(b"x" * 3000)
+            calls.append(("youtube_download", self.opts["format"]))
+            # The downloader creates a video FIRST, never MP3.
+            filename = self.opts["outtmpl"].replace(".%(ext)s", ".mp4")
+            Path(filename).write_bytes(b"video" * 650)
             return 0
 
     monkeypatch.setattr(fallback, "YoutubeDL", FakeDL)
-    monkeypatch.setattr(fallback.subprocess, "run", lambda *_args, **_kw: SimpleNamespace(
-        stdout=json.dumps({"streams": [{"codec_name": "mp3"}], "format": {"duration": "3"}})
-    ))
+    _simulate_two_stage_conversion(monkeypatch, calls)
     result = fallback.download_youtube_video_as_mp3(
         "https://youtu.be/demo", str(tmp_path / "source.%(ext)s"), bitrate_kbps=320
     )
     assert result.endswith("source.mp3")
-    assert len(calls) == 1
-    assert calls[0]["format"] == "144"
-    assert calls[0]["postprocessors"][0]["preferredquality"] == "192"
+    assert Path(result).exists()
+    assert calls[0] == ("youtube_download", "144")
+    assert [item[1] for item in calls[1:]] == ["ffprobe", "ffmpeg", "ffprobe"]
+    assert any(item[1] == "ffmpeg" and "192k" in item[2] for item in calls) is False
+    # Video must be deleted after audio is verified.
+    assert not list(tmp_path.glob("source-video.*"))
 
 
-def test_if_muxed_unavailable_tries_mediax_merge(monkeypatch, tmp_path):
+def test_no_muxed_video_tries_mediax_style_merge_then_extracts(monkeypatch, tmp_path):
     calls = []
 
     class FakeDL:
@@ -94,16 +121,35 @@ def test_if_muxed_unavailable_tries_mediax_merge(monkeypatch, tmp_path):
         def extract_info(self, _url, download=False):
             return {"formats": [{**_format("video", 240, None), "acodec": "none"}]}
         def download(self, _urls):
-            calls.append(self.opts["format"])
-            Path(self.opts["outtmpl"].replace(".%(ext)s", ".mp3")).write_bytes(b"x" * 3000)
+            calls.append(("youtube_download", self.opts["format"]))
+            Path(self.opts["outtmpl"].replace(".%(ext)s", ".mkv")).write_bytes(b"video" * 650)
             return 0
 
     monkeypatch.setattr(fallback, "YoutubeDL", FakeDL)
-    monkeypatch.setattr(fallback.subprocess, "run", lambda *_args, **_kw: SimpleNamespace(
-        stdout=json.dumps({"streams": [{"codec_name": "mp3"}], "format": {"duration": "3"}})
-    ))
-    fallback.download_youtube_video_as_mp3("https://youtu.be/demo", str(tmp_path / "source.%(ext)s"), bitrate_kbps=256)
-    assert len(calls) == 1 and "bestvideo[height<=480]+bestaudio" in calls[0]
+    _simulate_two_stage_conversion(monkeypatch, calls)
+    result = fallback.download_youtube_video_as_mp3(
+        "https://youtu.be/demo", str(tmp_path / "source.%(ext)s"), bitrate_kbps=256,
+    )
+    assert result.endswith(".mp3")
+    assert len([item for item in calls if item[0] == "youtube_download"]) == 1
+    assert "bestvideo[height<=480]+bestaudio" in calls[0][1]
+    assert [item[1] for item in calls[1:]] == ["ffprobe", "ffmpeg", "ffprobe"]
+
+
+def test_downloaded_silent_video_is_rejected_before_ffmpeg(monkeypatch, tmp_path):
+    calls = []
+    def fake_probe(cmd, **_kwargs):
+        calls.append(cmd[0])
+        return SimpleNamespace(stdout=json.dumps({
+            "streams": [{"codec_type": "video", "codec_name": "h264"}],
+            "format": {"duration": "4"},
+        }))
+    monkeypatch.setattr(fallback.subprocess, "run", fake_probe)
+    path = tmp_path / "silent.mp4"
+    path.write_bytes(b"video" * 600)
+    with pytest.raises(RuntimeError, match="no video\\+audio"):
+        fallback._verified_video(str(path))
+    assert calls == ["ffprobe"]
 
 
 def test_corrupt_mp3_rejected(tmp_path):
@@ -122,6 +168,26 @@ def test_real_synthetic_mp3_validation(tmp_path):
         "-c:a", "libmp3lame", "-b:a", "128k", str(path),
     ], check=True, timeout=15)
     assert fallback._verified_mp3(str(tmp_path / "source.%(ext)s")) == str(path)
+
+
+@pytest.mark.asyncio
+async def test_video_first_runs_before_local_audio_attempt(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIX_YOUTUBE_VIDEO_FIRST", "1")
+    monkeypatch.setenv("MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED", "1")
+    monkeypatch.setenv("MUSIX_YOUTUBE_LOCAL_FIRST", "1")
+    monkeypatch.setattr(
+        fallback, "download_youtube_video_as_mp3",
+        lambda *_args, **_kw: "/tmp/video-before-audio.mp3",
+    )
+    monkeypatch.setattr(
+        music, "_run_ytdlp_mp3_sync",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("audio path must not run first")),
+    )
+    result = await music._download_mp3(
+        "https://youtu.be/demo", work_dir=str(tmp_path), bitrate_kbps=192,
+        source="youtube",
+    )
+    assert result == "/tmp/video-before-audio.mp3"
 
 
 @pytest.mark.asyncio
