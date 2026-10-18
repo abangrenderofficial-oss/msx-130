@@ -14,11 +14,10 @@
  <div class="top"><div><small class="eyebrow">MUSIX / SECURE IDENTITY</small><h1>YouTube Session</h1><p>Real browser profile management. No saved Google password.</p></div><button class="ghost" id="logout" hidden>Log out</button></div>
  <section id="loginPanel" class="panel login">
    <div class="eyebrow">OWNER AUTHENTICATION</div><h2>Sign in to Musix Control</h2>
-   <p>Use the private admin passphrase and 6-digit authenticator code. This is <b>not</b> Google sign-in.</p>
+   <p>Hantar <b>/sessionlogin</b> dalam private chat bot Musix. Bot akan beri kod owner sekali guna (sah 3 minit). Ini <b>bukan</b> login Google.</p>
    <form id="loginForm" autocomplete="off">
-    <label>Admin passphrase <input id="adminPassword" type="password" minlength="12" autocomplete="current-password" required></label>
-    <label>Authenticator (TOTP) <input id="adminOtp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required></label>
-    <button class="primary" type="submit">Unlock admin dashboard →</button>
+    <label>Kod login daripada bot Musix <input id="loginCode" type="text" maxlength="64" autocapitalize="off" autocomplete="one-time-code" spellcheck="false" placeholder="Paste kod /sessionlogin" required></label>
+    <button class="primary" type="submit">Buka Dashboard Musix →</button>
    </form><div id="loginError" class="alert" role="status"></div>
  </section>
  <div id="dashboard" hidden>
@@ -29,9 +28,9 @@
   </div>
   <div class="columns">
    <section class="panel">
-    <div class="row"><div><h2>▶ YouTube Connection</h2><p>Connect your own Google account inside the real browser worker.</p></div><span class="pill" id="sessionPill">Not connected</span></div>
+    <div class="row"><div><h2>▶ YouTube Session</h2><p>Browser login Google hanya diaktifkan selepas worker lulus ujian sandbox.</p></div><span class="pill" id="sessionPill">Not connected</span></div>
     <div class="account"><span class="yt">▶</span><div><strong id="accountName">Google account not connected</strong><small>Credentials belong only to the real Google page, never to Musix.</small></div></div>
-    <div class="two"><div><small>Last verified</small><strong id="lastChecked">Never</strong></div><div><small>Authorization</small><strong>Owner + MFA</strong></div></div>
+    <div class="two"><div><small>Last verified</small><strong id="lastChecked">Never</strong></div><div><small>Authorization</small><strong>Telegram owner code</strong></div></div>
     <div class="actions"><button class="primary" id="connect">▣ Open secure browser</button><button id="verify" class="secondary">↻ Verify session</button></div>
     <div id="statusMessage" class="message" role="status">You can browse YouTube only after opening an admin-only browser ticket.</div>
    </section>
