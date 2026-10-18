@@ -173,7 +173,10 @@ async def test_private_audio_prefers_copying_exact_delivered_message(monkeypatch
             "🆔 ID: 998877\n"
             "📛 Nama: Test Listener\n"
             "🕒 Masa: 09/10/2026 11:00\n"
-            "🌐 Platform: YouTube"
+            "🌐 Platform: YouTube\n"
+            "📊 Penggunaan MusiX: Belum tersedia\n"
+            "💜 Support Tier: Belum disambung ke PayPing\n"
+            "🔐 Status Akses: ✅ Access (audio berjaya dihantar; PayPing belum aktif)"
         ),
     )
     fake_bot.send_audio.assert_not_awaited()
