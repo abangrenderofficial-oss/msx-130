@@ -619,25 +619,29 @@ async def total_musix_unique_users(message: types.Message) -> None:
         return  # Owner-only command: do not reveal population to other users.
 
     try:
-        users = await db.count_musix_unique_users()
+        stats = await db.get_musix_bot_statistics()
     except Exception as exc:
         logging.error(
-            "MusiX unique user count unavailable: error_type=%s",
+            "MusiX statistics unavailable: error_type=%s",
             type(exc).__name__,
         )
         await message.answer(
-            "❌ Tak dapat semak jumlah pengguna MusiX sekarang. "
-            "Database mungkin sedang sibuk. Cuba lagi."
+            "❌ Statistik MusiX belum dapat dibaca daripada database. "
+            "Cuba lagi sebentar."
         )
         return
 
     await message.answer(
-        "🎵 <b>Jumlah Pengguna MusiX</b>\n"
-        f"👥 Pengguna unik: <b>{users:,}</b> orang\n\n"
-        "✅ Kiraan berdasarkan Telegram User ID unik "
-        "yang pernah berinteraksi dengan MusiX.\n"
-        "🔒 Sumber: MusiX sahaja (bot_id: musix).\n"
-        "🚫 MediaX, group chat dan username berulang tidak dikira.",
+        "🎵 <b>MusiX Downloader Bot</b>\n"
+        "📊 <b>Bot Statistics</b>\n\n"
+        f"Total users: <b>{stats['total_users']:,}</b>\n"
+        f"Active last 30 days: <b>{stats['active_last_30_days']:,}</b>\n"
+        f"Audio requests this month: <b>{stats['audio_requests_this_month']:,}</b>\n"
+        f"Private audio sent this month*: <b>{stats['private_audio_delivered_this_month']:,}</b>\n"
+        f"Connected Music Groups: <b>{stats['connected_music_groups']:,}</b>\n\n"
+        "<i>*Kiraan audio private berjaya sejak tracking diaktifkan; "
+        "permintaan audio bukan semestinya download berjaya.</i>\n"
+        "<i>Data MusiX sahaja • Telegram User ID unik • waktu Malaysia</i>",
         parse_mode="HTML",
     )
 
