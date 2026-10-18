@@ -31,6 +31,7 @@ PASSWORD_HASH = os.getenv("MUSIX_ADMIN_PASSWORD_SCRYPT", "")
 TOTP_SECRET = os.getenv("MUSIX_ADMIN_TOTP_SECRET", "")
 DEV_HTTP = os.getenv("MUSIX_DASHBOARD_DEV_HTTP") == "1"
 STORE = Path(os.getenv("MUSIX_ADMIN_AUDIT_DB", "/state/admin_audit.sqlite"))
+NOVNC_ROOT = Path(os.getenv("MUSIX_NOVNC_STATIC", "/srv/novnc"))
 SESSION_LIFETIME = 8 * 3600
 TICKET_LIFETIME = 300
 CONTROL_LIFETIME = 10 * 60
@@ -279,6 +280,10 @@ async def browser_websocket(request: web.Request):
     await ws.prepare(request)
     SOCKETS[sid].add(ws)
     audit("BROWSER_OPEN", "ok")
+    async def hard_timeout():
+        await asyncio.sleep(CONTROL_LIFETIME)
+        await ws.close(code=1000, message=b"Browser control TTL expired")
+    expiry_task = asyncio.create_task(hard_timeout())
     try:
         async with ClientSession() as client:
             async with client.ws_connect(WORKER_SOCKET, heartbeat=20) as upstream:
@@ -306,6 +311,8 @@ async def browser_websocket(request: web.Request):
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
     finally:
+        expiry_task.cancel()
+        await asyncio.gather(expiry_task, return_exceptions=True)
         SOCKETS[sid].discard(ws)
         await ws.close()
     return ws
@@ -320,7 +327,7 @@ def create_app() -> web.Application:
     app.router.add_get("/admin/login", lambda r: web.FileResponse(BASE / "dashboard.html"))
     app.router.add_get("/browser", lambda r: web.FileResponse(BASE / "browser.html"))
     app.router.add_static("/static", BASE / "static", follow_symlinks=False)
-    app.router.add_static("/novnc", "/srv/novnc", follow_symlinks=False)
+    app.router.add_static("/novnc", NOVNC_ROOT, follow_symlinks=False)
     app.router.add_post("/login", post_login)
     app.router.add_get("/api/me", api_me)
     app.router.add_get("/api/status", api_status)
@@ -335,4 +342,4 @@ def create_app() -> web.Application:
 
 
 if __name__ == "__main__":
-    web.run_app(create_app(), host="0.0.0.0", port=8765)
+    web.run_app(create_app(), host="0.0.0.0", port=8765, access_log=None)
