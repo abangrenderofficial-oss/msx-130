@@ -41,7 +41,7 @@
 | GET /api/me | Authenticated UI CSRF token |
 | GET /api/status | Read sanitized browser state from worker |
 | POST /api/browser-ticket | Single-use browser ticket, 300s |
-| GET /browser/ws?ticket=... | Authenticated websocket to internal noVNC |
+| GET /browser/ws?ticket=... | Authenticated websocket to internal noVNC; reverse proxy MUST redact WS query strings from logs |
 | POST /api/verify | Worker checks current YouTube signed-in UI |
 | POST /api/lock | Revokes control tickets and closes remote sessions |
 | POST /api/revoke | Confirm with REVOKE; deletes dedicated browser profile |
