@@ -5,10 +5,12 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from aiogram import types
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app_context import bot, db
-from services.storage.models import AdminMusicMonitorSettings
+from services.storage.models import AdminMusicMonitorSettings, AdminPrivateAudioUsage
+from services.admin_monitor_access import MonitorAccess, monitor_access_lines, payping_monitor_status
 from services.logger import logger as logging
 from services.storage.music_cache import (
     add_remote_music_group_track,
@@ -181,7 +183,52 @@ async def get_admin_music_monitor_group() -> tuple[int | None, str | None]:
     return _monitor_group_id, _monitor_group_title
 
 
-def _user_detail_lines(message: types.Message, platform: str) -> list[str]:
+async def _record_private_audio_uses(user_id: int, request_message_id: object) -> int | None:
+    """Idempotent successes per input message, not downloaded files/parts.
+
+    New counter starts when this schema is deployed. Older historical requests
+    must not be represented as zero lifetime usage.
+    """
+    try:
+        async with db.SessionLocal() as session:
+            async with session.begin():
+                try:
+                    msg_id = int(request_message_id)
+                except (TypeError, ValueError, OverflowError):
+                    msg_id = 0
+                if msg_id > 0:
+                    await session.execute(
+                        pg_insert(AdminPrivateAudioUsage)
+                        .values(user_id=int(user_id), request_message_id=msg_id)
+                        .on_conflict_do_nothing(
+                            index_elements=[
+                                AdminPrivateAudioUsage.user_id,
+                                AdminPrivateAudioUsage.request_message_id,
+                            ]
+                        )
+                    )
+                count = await session.scalar(
+                    select(func.count())
+                    .select_from(AdminPrivateAudioUsage)
+                    .where(AdminPrivateAudioUsage.user_id == int(user_id))
+                )
+                return int(count or 0)
+    except Exception as exc:
+        logging.warning(
+            "Private usage count unavailable: user=%s error_type=%s",
+            user_id,
+            type(exc).__name__,
+        )
+        return None
+
+
+def _user_detail_lines(
+    message: types.Message,
+    platform: str,
+    *,
+    successful_uses: int | None = None,
+    payping_status: MonitorAccess | None = None,
+) -> list[str]:
     user = getattr(message, "from_user", None)
     if user is None:
         return [f"🌐 Platform: {platform}"]
@@ -211,6 +258,15 @@ def _user_detail_lines(message: types.Message, platform: str) -> list[str]:
             f"🌐 Platform: {platform}",
         ]
     )
+    lines.append(
+        "📊 Penggunaan MusiX: "
+        + (
+            f"{successful_uses} kali (direkod sejak monitor diaktifkan)"
+            if successful_uses is not None
+            else "Belum tersedia"
+        )
+    )
+    lines.extend(monitor_access_lines(payping_status or MonitorAccess()))
     return lines
 
 
@@ -236,6 +292,13 @@ async def mirror_private_audio_to_admin_group(
     if not file_id_text:
         return
 
+    # Record real successful user requests even before an admin group is connected.
+    # A failed stats/status lookup must never block audio delivery to the user.
+    successful_uses = await _record_private_audio_uses(
+        int(user.id),
+        getattr(message, "message_id", None),
+    )
+
     destination_id, _destination_title = await get_admin_music_monitor_group()
     if destination_id is None:
         logging.warning(
@@ -246,7 +309,19 @@ async def mirror_private_audio_to_admin_group(
         )
         return
 
-    caption = "\n".join(_user_detail_lines(message, platform))
+    payping_status = await payping_monitor_status(
+        int(user.id),
+        first_name=str(getattr(user, "first_name", "") or ""),
+        username=str(getattr(user, "username", "") or ""),
+    )
+    caption = "\n".join(
+        _user_detail_lines(
+            message,
+            platform,
+            successful_uses=successful_uses,
+            payping_status=payping_status,
+        )
+    )
     kwargs: dict[str, object] = {
         "chat_id": destination_id,
         "audio": file_id_text,
