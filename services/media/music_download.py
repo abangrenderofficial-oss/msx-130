@@ -232,6 +232,44 @@ def _extract_info_once(url: str, *, youtube_client: str | None = None) -> dict[s
     return info
 
 
+def _youtube_oembed_info_sync(url: str) -> dict[str, Any]:
+    """Metadata-only fallback to prevent false early aborts on YouTube challenges.
+
+    oEmbed does NOT provide audio, media URLs or duration.
+    """
+    video_id = _youtube_video_id(url)
+    if not video_id:
+        raise MusicDownloadError("Invalid YouTube video ID for oEmbed metadata")
+
+    with httpx.Client(
+        timeout=httpx.Timeout(7.0, connect=3.0),
+        follow_redirects=False,
+        trust_env=False,
+    ) as client:
+        response = client.get(
+            "https://www.youtube.com/oembed",
+            params={
+                "url": f"https://www.youtube.com/watch?v={video_id}",
+                "format": "json",
+            },
+            headers={"Accept": "application/json"},
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    if not isinstance(data, dict) or not isinstance(data.get("title"), str):
+        raise MusicDownloadError("YouTube oEmbed metadata lacks a title")
+    title = data["title"].strip()
+    if not title:
+        raise MusicDownloadError("YouTube oEmbed metadata has an empty title")
+    return {
+        "id": video_id,
+        "title": title,
+        "uploader": str(data.get("author_name") or "YouTube"),
+        "thumbnail": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+    }
+
+
 def _extract_info_sync(url: str, source: str) -> dict[str, Any]:
     low_memory_mode = source == "youtube" and _youtube_low_memory_mode()
     invidious_metadata_error: Exception | None = None
@@ -280,6 +318,14 @@ def _extract_info_sync(url: str, source: str) -> dict[str, Any]:
                 "YouTube low-memory metadata mode exhausted without public-client fan-out: error=%s",
                 first_error,
             )
+            try:
+                return _youtube_oembed_info_sync(url)
+            except Exception as embed_error:
+                logging.warning(
+                    "YouTube oEmbed fallback failed: error_type=%s",
+                    type(embed_error).__name__,
+                )
+
             raise MusicDownloadError(
                 "\n--- YouTube low-memory metadata retries ---\n" + "\n".join(errors)
             ) from last_error
@@ -302,6 +348,16 @@ def _extract_info_sync(url: str, source: str) -> dict[str, Any]:
                     client,
                     fallback_error,
                 )
+        try:
+            metadata = _youtube_oembed_info_sync(url)
+            logging.info("YouTube title obtained via oEmbed; audio source unverified")
+            return metadata
+        except Exception as embed_error:
+            logging.warning(
+                "YouTube oEmbed fallback failed: error_type=%s",
+                type(embed_error).__name__,
+            )
+
         raise MusicDownloadError(
             "\n--- YouTube client retries ---\n" + "\n".join(errors)
         ) from last_error
