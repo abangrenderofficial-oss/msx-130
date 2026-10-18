@@ -9,6 +9,7 @@ from services.logger import logger as logging
 from services.settings import SETTING_DISABLED, SETTING_FIELDS, SETTING_VALUES, normalize_setting_value
 from services.storage.models import (
     DEFAULT_USER_SETTINGS,
+    BotUserRegistry,
     Group,
     GroupMember,
     Settings,
@@ -114,12 +115,50 @@ class UserRepositoryMixin:
                 res = await session.execute(stmt)
                 updated_status = res.scalar_one_or_none()
 
+                # Telegram ID + source bot form the durable identity;
+                # username edits or missing handles never increase counts.
+                if user_id_int > 0:
+                    registration = self._insert(BotUserRegistry).values(
+                        bot_id="musix",
+                        telegram_user_id=user_id_int,
+                        username=(str(user_username).strip() or None)
+                        if user_username is not None
+                        else None,
+                    )
+                    registration = registration.on_conflict_do_update(
+                        index_elements=[
+                            BotUserRegistry.bot_id,
+                            BotUserRegistry.telegram_user_id,
+                        ],
+                        set_={
+                            "username": registration.excluded.username,
+                            "last_seen_at": func.now(),
+                        },
+                    )
+                    await session.execute(registration)
+
         if updated_status is not None:
             self._status_cache[user_id_int] = (time.monotonic(), updated_status)
         elif status is not None:
             self._status_cache[user_id_int] = (time.monotonic(), status)
         else:
             self._status_cache.pop(user_id_int, None)
+
+    async def count_musix_unique_users(self) -> int:
+        """Return distinct Telegram users of MusiX, never MediaX.
+
+        A bot_id filter remains mandatory if the physical database is shared.
+        """
+        async with self.SessionLocal() as session:
+            total = await session.scalar(
+                select(func.count())
+                .select_from(BotUserRegistry)
+                .where(
+                    BotUserRegistry.bot_id == "musix",
+                    BotUserRegistry.telegram_user_id > 0,
+                )
+            )
+            return int(total or 0)
 
     async def upsert_group(
         self,
