@@ -256,5 +256,41 @@ def download_youtube_video_as_mp3(
             )
         finally:
             _cleanup_outputs(video_template)
+    # MediaX doesn't always need yt-dlp: its resolver obtains progressive
+    # video URLs from independent providers. Musix MUST download those bytes
+    # to disk before FFmpeg (a Telegram URL-send is not a local video file).
+    try:
+        from services.media.youtube_mediax_provider import (
+            download_video_from_mediax_providers,
+        )
+
+        provider_path, provider_name = download_video_from_mediax_providers(
+            url, video_template, max_bytes,
+        )
+        _verified_video(provider_path)
+        logging.info(
+            "MUSIX_VIDEO_DOWNLOAD_OK: bytes=%s strategy=provider:%s",
+            os.path.getsize(provider_path), provider_name,
+        )
+        mp3_path = _extract_downloaded_video_to_mp3(
+            provider_path, out_template, _mp3_bitrate_kbps(None, bitrate_kbps),
+        )
+        logging.info(
+            "MUSIX_VIDEO_TO_MP3_OK: strategy=provider:%s mp3_bytes=%s",
+            provider_name, os.path.getsize(mp3_path),
+        )
+        return mp3_path
+    except Exception as provider_exc:
+        errors.append(
+            f"mediax-provider:{type(provider_exc).__name__}: "
+            f"{str(provider_exc)[-180:]}"
+        )
+        logging.warning(
+            "MUSIX_MEDIA_PROVIDER_VIDEO_FAILED: error_type=%s",
+            type(provider_exc).__name__,
+        )
+    finally:
+        _cleanup_outputs(video_template)
+
     _cleanup_outputs(out_template)
-    raise RuntimeError("Video-first attempts exhausted: " + " | ".join(errors[-5:]))
+    raise RuntimeError("Video-first attempts exhausted: " + " | ".join(errors[-6:]))
