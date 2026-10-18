@@ -611,6 +611,37 @@ async def _cleanup_downloads_once() -> str:
     return bm.downloads_cleanup_finished(removed_files, removed_dirs, skipped_recent_files)
 
 
+@router.message(Command("totalusermusic"))
+async def total_musix_unique_users(message: types.Message) -> None:
+    """Owner-only, hidden from slash menu; count only MusiX user identities."""
+    actor_id = getattr(getattr(message, "from_user", None), "id", None)
+    if not is_admin_music_owner(actor_id):
+        return  # Owner-only command: do not reveal population to other users.
+
+    try:
+        users = await db.count_musix_unique_users()
+    except Exception as exc:
+        logging.error(
+            "MusiX unique user count unavailable: error_type=%s",
+            type(exc).__name__,
+        )
+        await message.answer(
+            "❌ Tak dapat semak jumlah pengguna MusiX sekarang. "
+            "Database mungkin sedang sibuk. Cuba lagi."
+        )
+        return
+
+    await message.answer(
+        "🎵 <b>Jumlah Pengguna MusiX</b>\n"
+        f"👥 Pengguna unik: <b>{users:,}</b> orang\n\n"
+        "✅ Kiraan berdasarkan Telegram User ID unik "
+        "yang pernah berinteraksi dengan MusiX.\n"
+        "🔒 Sumber: MusiX sahaja (bot_id: musix).\n"
+        "🚫 MediaX, group chat dan username berulang tidak dikira.",
+        parse_mode="HTML",
+    )
+
+
 @router.message(Command("menuadmin"))
 async def admin_command_menu(message: types.Message) -> None:
     user_id = getattr(getattr(message, "from_user", None), "id", None)
@@ -639,8 +670,9 @@ async def admin_command_menu(message: types.Message) -> None:
         "/perf — Performance metrics\n"
         "/session — Runtime/session metrics\n"
         "/connectadminmusic — Connect group pemantau private-user music\n"
+        "/totalusermusic — Jumlah pengguna unik MusiX sahaja\n"
         "/menuadmin — Paparkan menu command admin ini\n\n"
-        "⚠️ /connectadminmusic dan /menuadmin hanya untuk owner."
+        "⚠️ /connectadminmusic, /totalusermusic dan /menuadmin hanya untuk owner."
     )
     await message.answer(text, parse_mode="HTML")
 
