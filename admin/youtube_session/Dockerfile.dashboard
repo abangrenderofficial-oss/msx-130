@@ -4,7 +4,11 @@ WORKDIR /srv/session
 RUN pip install --no-cache-dir aiohttp==3.14.3 && \
     useradd --create-home --uid 10001 --shell /usr/sbin/nologin admin && \
     mkdir -p /srv/novnc /state && chown -R admin:admin /state /srv/novnc
-COPY --chown=admin:admin admin/youtube_session/ /srv/session/
+# Explicitly list public source to guarantee local .env secrets never enter image.
+COPY --chown=admin:admin admin/youtube_session/dashboard_server.py /srv/session/
+COPY --chown=admin:admin admin/youtube_session/dashboard.html /srv/session/
+COPY --chown=admin:admin admin/youtube_session/browser.html /srv/session/
+COPY --chown=admin:admin admin/youtube_session/static/ /srv/session/static/
 USER admin
 EXPOSE 8765
 CMD ["python", "dashboard_server.py"]
