@@ -20,7 +20,7 @@ def load_dashboard(monkeypatch, tmp_path):
     monkeypatch.setenv("MUSIX_ADMIN_PUBLIC_ORIGIN", "http://localhost:8765")
     monkeypatch.setenv("MUSIX_DASHBOARD_DEV_HTTP", "1")
     monkeypatch.setenv("MUSIX_WORKER_SECRET", "w" * 40)
-    monkeypatch.setenv("MUSIX_ADMIN_PASSWORD_SCRYPT", salt.hex() + "$" + digest.hex())
+    monkeypatch.setenv("MUSIX_ADMIN_PASSWORD_SCRYPT", salt.hex() + ":" + digest.hex())
     monkeypatch.setenv("MUSIX_ADMIN_TOTP_SECRET", "JBSWY3DPEHPK3PXP")
     spec = importlib.util.spec_from_file_location("dashboard_session_test", SRC)
     module = importlib.util.module_from_spec(spec)
