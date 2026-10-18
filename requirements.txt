@@ -15,3 +15,6 @@ psycopg2-binary==2.9.12
 python-dotenv==1.2.3
 yt-dlp[default] @ https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/2026.09.27.232945/yt-dlp.tar.gz
 yt-dlp-getpot-wpc==1.1.2
+
+# Bundled Node.js for byte-for-byte MediaX YouTube JS; Musix remains Python.
+nodejs-wheel==22.20.0
