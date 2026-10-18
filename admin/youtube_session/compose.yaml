@@ -31,8 +31,9 @@ services:
       dockerfile: admin/youtube_session/Dockerfile.worker
     restart: unless-stopped
     init: true
-    env_file: .env
+    # Worker receives ONLY its own RPC token, never admin passphrase or TOTP.
     environment:
+      MUSIX_WORKER_SECRET: ${MUSIX_WORKER_SECRET:?Worker secret is required}
       MUSIX_BROWSER_VAULT: /vault
       MUSIX_CHROMIUM_BINARY: /usr/bin/chromium
       DISPLAY: ":99"
