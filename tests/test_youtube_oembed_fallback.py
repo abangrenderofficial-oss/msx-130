@@ -37,6 +37,7 @@ def test_official_youtube_oembed_provides_title_not_audio(monkeypatch):
 
 
 def test_metadata_login_required_tries_oembed_without_claiming_audio(monkeypatch):
+    monkeypatch.setenv("MUSIX_YOUTUBE_OEMBED_FALLBACK_ENABLED", "1")
     attempts = []
 
     def fake_ytdlp(url, *, youtube_client=None):
@@ -69,3 +70,20 @@ def test_non_youtube_never_calls_youtube_oembed(monkeypatch):
     monkeypatch.setattr(music, "_extract_info_once", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("upstream")))
     with pytest.raises(music.MusicDownloadError, match="upstream"):
         music._extract_info_sync("https://www.tiktok.com/@x/video/123", "tiktok")
+
+
+def test_oembed_never_activates_while_media_backends_are_unverified(monkeypatch):
+    monkeypatch.delenv("MUSIX_YOUTUBE_OEMBED_FALLBACK_ENABLED", raising=False)
+    monkeypatch.setattr(music, "_youtube_low_memory_mode", lambda: True)
+    monkeypatch.setattr(music, "_configured_invidious_api_urls", lambda: [])
+    monkeypatch.setattr(music, "_configured_piped_api_urls", lambda: [])
+    monkeypatch.setattr(
+        music, "_extract_info_once",
+        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("login required")),
+    )
+    monkeypatch.setattr(
+        music, "_youtube_oembed_info_sync",
+        lambda url: (_ for _ in ()).throw(AssertionError("opt-in required")),
+    )
+    with pytest.raises(music.MusicDownloadError, match="YouTube low-memory metadata retries"):
+        music._extract_info_sync("https://youtu.be/jNQXAC9IVRw", "youtube")
