@@ -2,7 +2,6 @@
 set -eu
 umask 077
 test -n "${MUSIX_WORKER_SECRET:-}" || { echo "MUSIX_WORKER_SECRET missing" >&2; exit 1; }
-cp -R /usr/share/novnc/. /srv/novnc/
 Xvfb :99 -screen 0 1350x900x24 -nolisten tcp >/dev/null 2>&1 &
 XVFB_PID=$!
 x11vnc -display :99 -rfbport 5900 -localhost -forever -shared -nopw -quiet >/dev/null 2>&1 &
