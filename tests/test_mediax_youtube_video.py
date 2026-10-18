@@ -15,6 +15,9 @@ EXPECTED_MEDIAX_HASHES = {
     "youtube-free.js": "ea43ffb58e0ca5c0fdd10c6225cb3fff6ba3864ddfe72cb8b09d9b3e6217615d",
     "youtube-upload.js": "8a355ab13b5a14a7d94b219d421c7ce0610e865afb2884b166a7a9d5192cd574",
     "env-number.js": "85684489063536215b852f381c64a62803d4d9b66f46da2c47d161585432e9e4",
+    "features/downloader.js": "0d798e45901317bea47d8daceea0d76dd96e673dde3b089e3cba6286ec4175f5",
+    "bot/media-resolver.js": "5b4b4816d80edaee04d568aa497b710f5eab83d8cd1a618360a95958def0eb05",
+    "telegram.js": "cf6addf7ae70a33a1fb182f2a622ea7f2523368080cd4ad82a71d3340e2d05c7",
 }
 
 
