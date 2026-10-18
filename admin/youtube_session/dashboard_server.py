@@ -30,7 +30,7 @@ PASSWORD_HASH = os.getenv("MUSIX_ADMIN_PASSWORD_SCRYPT", "")
 TOTP_SECRET = os.getenv("MUSIX_ADMIN_TOTP_SECRET", "")
 DEV_HTTP = os.getenv("MUSIX_DASHBOARD_DEV_HTTP") == "1"
 STORE = Path(os.getenv("MUSIX_ADMIN_AUDIT_DB", "/state/admin_audit.sqlite"))
-NOVNC_ROOT = Path(os.getenv("MUSIX_NOVNC_STATIC", "/srv/novnc"))
+NOVNC_ROOT = Path(os.getenv("MUSIX_NOVNC_STATIC", "/usr/share/novnc"))
 SESSION_LIFETIME = 8 * 3600
 TICKET_LIFETIME = 300
 CONTROL_LIFETIME = 10 * 60
@@ -51,9 +51,9 @@ def require_configuration() -> None:
         raise RuntimeError("Development HTTP allowed only on localhost")
     if len(WORKER_SECRET) < 32 or ":" not in PASSWORD_HASH or not TOTP_SECRET:
         raise RuntimeError("Worker secret, scrypt passphrase hash, and TOTP required")
-    if not WORKER_URL.startswith("http://browser-worker:"):
+    if not (WORKER_URL.startswith("http://browser-worker:") or WORKER_URL.startswith("http://musix-browser-worker.railway.internal:")):
         raise RuntimeError("Worker API must be private to the Docker network")
-    if not WORKER_SOCKET.startswith("ws://browser-worker:"):
+    if not (WORKER_SOCKET.startswith("ws://browser-worker:") or WORKER_SOCKET.startswith("ws://musix-browser-worker.railway.internal:")):
         raise RuntimeError("Worker VNC must be private to the Docker network")
 
 
@@ -341,4 +341,4 @@ def create_app() -> web.Application:
 
 
 if __name__ == "__main__":
-    web.run_app(create_app(), host="0.0.0.0", port=8765, access_log=None)
+    web.run_app(create_app(), host="0.0.0.0", port=int(os.getenv("PORT", "8765")), access_log=None)
