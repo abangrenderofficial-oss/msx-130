@@ -104,15 +104,29 @@ def _verified_mp3(out_template: str) -> str:
     filename = out_template.replace(".%(ext)s", ".mp3")
     if not os.path.isfile(filename) or os.path.getsize(filename) < 2048:
         raise RuntimeError("Video-to-audio fallback produced no usable MP3 file")
-    probe = subprocess.run(
-        [
-            "ffprobe", "-v", "error", "-select_streams", "a:0",
-            "-show_entries", "stream=codec_name:format=duration",
-            "-of", "json", filename,
-        ],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=12, check=True, text=True,
-    )
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name:format=duration",
+                "-of", "json", filename,
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=12, check=True, text=True,
+        )
+    except FileNotFoundError:
+        # Some small bot hosts bundle FFmpeg without ffprobe. Mutagen is
+        # already a pinned Musix dependency; never accept unchecked bytes.
+        try:
+            from mutagen.mp3 import MP3
+
+            info = MP3(filename).info
+            if (info.length or 0) <= 0:
+                raise ValueError("MP3 has no duration")
+        except Exception as exc:
+            raise RuntimeError("Fallback MP3 failed Mutagen validation") from exc
+        return filename
+
     data = json.loads(probe.stdout)
     streams = data.get("streams") or []
     duration = _positive_number((data.get("format") or {}).get("duration"))
