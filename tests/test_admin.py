@@ -700,13 +700,7 @@ async def test_menuadmin_owner_private_shows_all_current_commands(monkeypatch):
         "/settings",
         "/remove_keyboard",
         "/connectmusic",
-        "/playlist",
-        "/playall",
-        "/search",
-        "/clearlink",
         "/clearall",
-        "/playsync",
-        "/stopsync",
         "/admin",
         "/perf",
         "/session",
@@ -714,6 +708,10 @@ async def test_menuadmin_owner_private_shows_all_current_commands(monkeypatch):
         "/menuadmin",
     ):
         assert command in text
+    for removed in (
+        "/playlist", "/playall", "/search", "/clearlink", "/playsync", "/stopsync"
+    ):
+        assert removed not in text
 
 
 @pytest.mark.asyncio
