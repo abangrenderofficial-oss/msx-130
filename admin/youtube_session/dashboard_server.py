@@ -22,6 +22,9 @@ from urllib.parse import urlparse
 from aiohttp import ClientSession, WSMsgType, web
 
 BASE = Path(__file__).resolve().parent
+BOT_HOSTING_MODE = os.getenv("MUSIX_DASHBOARD_TELEGRAM_AUTH") == "1"
+LOGIN_CODES: dict[str, float | str] = {}
+LOGIN_CODE_SECRET = secrets.token_bytes(32)
 ORIGIN = os.getenv("MUSIX_ADMIN_PUBLIC_ORIGIN", "").rstrip("/")
 WORKER_URL = os.getenv("MUSIX_WORKER_URL", "http://browser-worker:8787").rstrip("/")
 WORKER_SOCKET = os.getenv("MUSIX_WORKER_VNC_WS", "ws://browser-worker:6080")
@@ -49,8 +52,10 @@ def require_configuration() -> None:
         raise RuntimeError("Invalid admin public origin")
     if DEV_HTTP and parsed.hostname not in {"localhost", "127.0.0.1"}:
         raise RuntimeError("Development HTTP allowed only on localhost")
-    if len(WORKER_SECRET) < 32 or ":" not in PASSWORD_HASH or not TOTP_SECRET:
+    if not BOT_HOSTING_MODE and (len(WORKER_SECRET) < 32 or ":" not in PASSWORD_HASH or not TOTP_SECRET):
         raise RuntimeError("Worker secret, scrypt passphrase hash, and TOTP required")
+    if BOT_HOSTING_MODE and not WORKER_SECRET:
+        return  # Fail closed: Google browser worker unavailable on this host.
     if not (WORKER_URL.startswith("http://browser-worker:") or WORKER_URL.startswith("http://musix-browser-worker.railway.internal:")):
         raise RuntimeError("Worker API must be private to the Docker network")
     if not (WORKER_SOCKET.startswith("ws://browser-worker:") or WORKER_SOCKET.startswith("ws://musix-browser-worker.railway.internal:")):
@@ -150,6 +155,31 @@ async def security(request: web.Request, handler):
     return response
 
 
+def issue_telegram_login_code(owner_id: int) -> str:
+    """Issue single-use passcode only in owner Musix private Telegram chat."""
+    from config import ADMINS_UID
+    if not BOT_HOSTING_MODE or int(owner_id) not in ADMINS_UID:
+        raise PermissionError("Owner-only session login")
+    code = secrets.token_urlsafe(16)
+    LOGIN_CODES.clear()
+    LOGIN_CODES["digest"] = hmac.new(LOGIN_CODE_SECRET, code.encode(), hashlib.sha256).hexdigest()
+    LOGIN_CODES["expires"] = time.time() + 180
+    return code
+
+
+def consume_telegram_login_code(value: str) -> bool:
+    if not isinstance(value, str) or len(value) > 100:
+        return False
+    digest = str(LOGIN_CODES.get("digest", ""))
+    expiry = float(LOGIN_CODES.get("expires", 0))
+    valid = bool(digest and expiry >= time.time() and hmac.compare_digest(
+        hmac.new(LOGIN_CODE_SECRET, value.encode(), hashlib.sha256).hexdigest(), digest
+    ))
+    if valid:
+        LOGIN_CODES.clear()
+    return valid
+
+
 async def post_login(request: web.Request):
     ip = request.remote or "unknown"
     recent = FAILED[ip]
@@ -161,8 +191,10 @@ async def post_login(request: web.Request):
     if not check_origin(request):
         raise web.HTTPForbidden(text="Bad origin")
     data = await request.json()
-    if (password_matches(str(data.get("password", ""))) and
-            totp_matches(str(data.get("totp", "")))):
+    accepted = (consume_telegram_login_code(str(data.get("code", ""))) if BOT_HOSTING_MODE
+                else (password_matches(str(data.get("password", ""))) and
+                      totp_matches(str(data.get("totp", "")))))
+    if accepted:
         sid = secrets.token_urlsafe(40)
         SESSIONS[sid] = {"expiry": now + SESSION_LIFETIME, "csrf": secrets.token_urlsafe(32)}
         audit("LOGIN", "ok")
@@ -183,6 +215,8 @@ async def api_me(request: web.Request):
 
 
 async def worker_rpc(method: str, path: str) -> dict:
+    if BOT_HOSTING_MODE and not WORKER_SECRET:
+        return {"status": "WORKER_OFFLINE", "worker": "WORKER_OFFLINE", "profile_present": False}
     async with ClientSession() as client:
         try:
             async with client.request(
@@ -212,6 +246,8 @@ async def api_events(request: web.Request):
 
 
 async def api_ticket(request: web.Request):
+    if BOT_HOSTING_MODE and not WORKER_SECRET:
+        raise web.HTTPServiceUnavailable(text="Secure browser worker not configured")
     sid, _ = get_session(request)
     # One unconsumed ticket per session. Tokens are single-use.
     for token, item in list(TICKETS.items()):
@@ -267,6 +303,8 @@ async def api_logout(request: web.Request):
 
 
 async def browser_websocket(request: web.Request):
+    if BOT_HOSTING_MODE and not WORKER_SECRET:
+        raise web.HTTPServiceUnavailable(text="Secure browser worker not configured")
     if not check_origin(request):
         raise web.HTTPForbidden(text="Invalid WebSocket origin")
     sid, _ = get_session(request)
@@ -321,12 +359,18 @@ def create_app() -> web.Application:
     require_configuration()
     initialize_audit()
     app = web.Application(middlewares=[security], client_max_size=16 * 1024)
-    app.router.add_get("/", lambda r: web.HTTPFound("/admin"))
+    async def health(_request):
+        return web.json_response({"ok": True, "service": "musix", "web": "admin", "telegram": "polling"})
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+    app.router.add_get("/ready", health)
+    app.router.add_get("/admin/youtube-session", lambda r: web.FileResponse(BASE / "dashboard.html"))
     app.router.add_get("/admin", lambda r: web.FileResponse(BASE / "dashboard.html"))
     app.router.add_get("/admin/login", lambda r: web.FileResponse(BASE / "dashboard.html"))
     app.router.add_get("/browser", lambda r: web.FileResponse(BASE / "browser.html"))
     app.router.add_static("/static", BASE / "static", follow_symlinks=False)
-    app.router.add_static("/novnc", NOVNC_ROOT, follow_symlinks=False)
+    if NOVNC_ROOT.is_dir():
+        app.router.add_static("/novnc", NOVNC_ROOT, follow_symlinks=False)
     app.router.add_post("/login", post_login)
     app.router.add_get("/api/me", api_me)
     app.router.add_get("/api/status", api_status)
