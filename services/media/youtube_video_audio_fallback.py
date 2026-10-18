@@ -9,7 +9,6 @@ import glob
 import json
 import os
 import subprocess
-from pathlib import Path
 from typing import Any
 
 from yt_dlp import YoutubeDL
@@ -89,9 +88,9 @@ def _mp3_bitrate_kbps(source_abr: float | None, requested: int) -> int:
     if source_abr is None:
         return min(safe_requested, 160)
     # Encode to a conventional rate not significantly above source bitrate.
-    standard = (64, 96, 128, 160, 192, 224, 256, 320)
+    standard = (32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320)
     allowed = [rate for rate in standard if rate <= source_abr + 2 and rate <= safe_requested]
-    return max(allowed) if allowed else 64
+    return max(allowed) if allowed else 32
 
 
 def _cleanup_outputs(out_template: str) -> None:
