@@ -87,7 +87,8 @@ async def test_owner_session_csrf_and_browser_ticket(monkeypatch, tmp_path):
         assert ticket_response.status == 200
         ticket = await ticket_response.json()
         assert ticket["ttl_seconds"] == 300
-        assert ticket["url"].startswith("/browser?ticket=")
+        assert ticket["url"] == "/browser"
+        assert len(ticket["ticket"]) > 30
         # Access to admin page is allowed but remote websocket needs a live
         # one-use ticket AND origin; no Google credentials are involved.
         assert (await client.get("/browser")).status == 200
