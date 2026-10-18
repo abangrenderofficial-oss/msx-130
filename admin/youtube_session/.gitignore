@@ -1,0 +1,9 @@
+.env
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+profile/
+chrome-user-data/
+cookies*
+.auth/
+__pycache__/

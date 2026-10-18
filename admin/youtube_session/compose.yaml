@@ -1,0 +1,54 @@
+# ISOLATED PRE-DEPLOY stack. Production Musix bot is NOT changed.
+# HTTPS ingress/reverse-proxy is intentionally external to this stack.
+name: musix-session
+services:
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: admin/youtube_session/Dockerfile.dashboard
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      MUSIX_WORKER_URL: http://browser-worker:8787
+      MUSIX_WORKER_VNC_WS: ws://browser-worker:6080
+      MUSIX_ADMIN_AUDIT_DB: /state/admin_audit.sqlite
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - admin-state:/state
+    read_only: true
+    tmpfs: [/tmp:size=64m,mode=1777]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      browser-worker:
+        condition: service_started
+    networks: [session-internal]
+  browser-worker:
+    build:
+      context: ../..
+      dockerfile: admin/youtube_session/Dockerfile.worker
+    restart: unless-stopped
+    init: true
+    # Worker receives ONLY its own RPC token, never admin passphrase or TOTP.
+    environment:
+      MUSIX_WORKER_SECRET: ${MUSIX_WORKER_SECRET:?Worker secret is required}
+      MUSIX_BROWSER_VAULT: /vault
+      MUSIX_CHROMIUM_BINARY: /usr/bin/chromium
+      DISPLAY: ":99"
+    shm_size: "512mb"
+    # No published ports; VNC and worker API are internal only.
+    expose: ["6080", "8787"]
+    volumes:
+      - type: bind
+        source: ${MUSIX_ENCRYPTED_VAULT_DIR:?Encrypted persistent mount required}
+        target: /vault
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 128
+    networks: [session-internal]
+volumes:
+  admin-state:
+networks:
+  session-internal:
+    driver: bridge

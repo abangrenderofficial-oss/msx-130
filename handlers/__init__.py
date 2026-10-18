@@ -1,6 +1,7 @@
 from aiogram import Router
 
 from . import (
+    admin_web_login,
     mediax_youtube_video_test,
     user,
     private_music,
@@ -22,6 +23,7 @@ from .admin_history_dialog import admin_history_dialog
 router = Router(name=__name__)
 
 router.include_routers(
+    admin_web_login.router,
     mediax_youtube_video_test.router,
     user.router,
     private_music.router,
