@@ -39,6 +39,7 @@ APP_SCHEMA_TABLES = frozenset(
         "group_members",
         "admin_music_monitor_settings",
         "admin_private_audio_usage",
+        "bot_user_registry",
         "music_group_settings",
         "music_group_tracks",
         "music_group_cleanup_messages",
@@ -93,6 +94,24 @@ class User(Base):
         uselist=False,
         primaryjoin="User.user_id == foreign(Settings.user_id)",
     )
+
+
+class BotUserRegistry(Base):
+    """Source-scoped Telegram users; one user per bot even in shared DBs.
+
+    Telegram user ID, not username, is the stable deduplication key.
+    """
+
+    __tablename__ = "bot_user_registry"
+    __table_args__ = (
+        Index("ix_bot_user_registry_bot", "bot_id"),
+    )
+
+    bot_id = Column(Text, primary_key=True)
+    telegram_user_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    username = Column(Text, nullable=True)
+    first_seen_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    last_seen_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class Group(Base):
