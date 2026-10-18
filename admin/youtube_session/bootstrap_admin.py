@@ -17,7 +17,7 @@ def main():
     worker = secrets.token_urlsafe(48)
     fields = {
         "MUSIX_ADMIN_PUBLIC_ORIGIN":"https://musix-admin.example.invalid",
-        "MUSIX_ADMIN_PASSWORD_SCRYPT":salt.hex() + "$" + hashed.hex(),
+        "MUSIX_ADMIN_PASSWORD_SCRYPT":salt.hex() + ":" + hashed.hex(),
         "MUSIX_ADMIN_TOTP_SECRET":totp,
         "MUSIX_WORKER_SECRET":worker,
         "MUSIX_ENCRYPTED_VAULT_DIR":"/mnt/encrypted-musix-youtube",
