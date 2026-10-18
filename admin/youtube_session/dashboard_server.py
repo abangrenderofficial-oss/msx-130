@@ -49,7 +49,7 @@ def require_configuration() -> None:
         raise RuntimeError("Invalid admin public origin")
     if DEV_HTTP and parsed.hostname not in {"localhost", "127.0.0.1"}:
         raise RuntimeError("Development HTTP allowed only on localhost")
-    if len(WORKER_SECRET) < 32 or "$" not in PASSWORD_HASH or not TOTP_SECRET:
+    if len(WORKER_SECRET) < 32 or ":" not in PASSWORD_HASH or not TOTP_SECRET:
         raise RuntimeError("Worker secret, scrypt passphrase hash, and TOTP required")
     if not WORKER_URL.startswith("http://browser-worker:"):
         raise RuntimeError("Worker API must be private to the Docker network")
@@ -59,7 +59,7 @@ def require_configuration() -> None:
 
 def password_matches(password: str) -> bool:
     try:
-        salt_hex, hash_hex = PASSWORD_HASH.split("$", 1)
+        salt_hex, hash_hex = PASSWORD_HASH.split(":", 1)
         expected = bytes.fromhex(hash_hex)
         derived = hashlib.scrypt(
             password.encode("utf-8"), salt=bytes.fromhex(salt_hex),
