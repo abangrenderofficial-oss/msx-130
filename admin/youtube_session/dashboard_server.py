@@ -220,7 +220,7 @@ async def api_ticket(request: web.Request):
     token = secrets.token_urlsafe(36)
     TICKETS[token] = {"sid": sid, "expires": time.time() + TICKET_LIFETIME}
     audit("TICKET", "ok")
-    return web.json_response({"url": "/browser?ticket=" + token, "ttl_seconds": TICKET_LIFETIME})
+    return web.json_response({"ticket": token, "url": "/browser", "ttl_seconds": TICKET_LIFETIME})
 
 
 async def lock_browser(sid: str):
