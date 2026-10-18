@@ -1,6 +1,7 @@
 from aiogram import Router
 
 from . import (
+    mediax_youtube_video_test,
     user,
     private_music,
     group_music,
@@ -21,6 +22,7 @@ from .admin_history_dialog import admin_history_dialog
 router = Router(name=__name__)
 
 router.include_routers(
+    mediax_youtube_video_test.router,
     user.router,
     private_music.router,
     guest.router,
