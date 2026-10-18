@@ -170,12 +170,12 @@ async def test_musix_dashboard_metrics_are_scoped_and_monthly():
             bot_id="mediax", telegram_user_id=101, username="new",
         ))
         conn.execute(AnalyticsEvent.__table__.insert(), [
-            {"user_id": 101, "chat_type": "private", "action_name": "start", "created_at": now},
-            {"user_id": 202, "chat_type": "private", "action_name": "start", "created_at": now},
-            {"user_id": 101, "chat_type": "private", "action_name": "youtube_audio", "created_at": now},
-            {"user_id": 101, "chat_type": "private", "action_name": "youtube_audio", "created_at": now},
-            {"user_id": 303, "chat_type": "private", "action_name": "youtube_audio", "created_at": now},
-            {"user_id": 101, "chat_type": "private", "action_name": "youtube_audio", "created_at": now - timedelta(days=45)},
+            {"id": 1, "user_id": 101, "chat_type": "private", "action_name": "start", "created_at": now},
+            {"id": 2, "user_id": 202, "chat_type": "private", "action_name": "start", "created_at": now},
+            {"id": 3, "user_id": 101, "chat_type": "private", "action_name": "youtube_audio", "created_at": now},
+            {"id": 4, "user_id": 101, "chat_type": "private", "action_name": "youtube_audio", "created_at": now},
+            {"id": 5, "user_id": 303, "chat_type": "private", "action_name": "youtube_audio", "created_at": now},
+            {"id": 6, "user_id": 101, "chat_type": "private", "action_name": "youtube_audio", "created_at": now - timedelta(days=45)},
         ])
         conn.execute(AdminPrivateAudioUsage.__table__.insert(), [
             {"user_id": 101, "request_message_id": 500, "created_at": now},
