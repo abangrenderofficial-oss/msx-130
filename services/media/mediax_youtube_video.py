@@ -144,7 +144,7 @@ def _cleanup_mediax_local_file(file_path: str) -> None:
     # MediaX's original local upload creates /tmp/ar-youtube-UUID.ext.
     path = Path(file_path)
     if path.parent != Path(tempfile.gettempdir()) or not re.match(
-        r"^ar-youtube-[a-f0-9-]{30,50}\\.(mp4|mkv|webm)$", path.name
+        r"^ar-youtube-[a-f0-9-]{30,50}\.(mp4|mkv|webm)$", path.name
     ):
         return
     try:
