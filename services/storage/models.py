@@ -38,6 +38,7 @@ APP_SCHEMA_TABLES = frozenset(
         "groups",
         "group_members",
         "admin_music_monitor_settings",
+        "admin_private_audio_usage",
         "music_group_settings",
         "music_group_tracks",
         "music_group_cleanup_messages",
@@ -121,6 +122,20 @@ class GroupMember(Base):
     group_id = Column(BigInteger, ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True)
     last_seen_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AdminPrivateAudioUsage(Base):
+    """One event per successfully served private message, surviving bot restarts.
+
+    Counting distinct Telegram incoming message IDs avoids overcounting multipart
+    replies, retries, and repeated admin-monitor delivery attempts.
+    """
+
+    __tablename__ = "admin_private_audio_usage"
+
+    user_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    request_message_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
 class AdminMusicMonitorSettings(Base):
