@@ -1,6 +1,10 @@
 """Generate admin credentials locally. Never capture Google password."""
 from __future__ import annotations
-import base64, getpass, hashlib, os, secrets
+import base64
+import getpass
+import hashlib
+import os
+import secrets
 from pathlib import Path
 
 def main():
