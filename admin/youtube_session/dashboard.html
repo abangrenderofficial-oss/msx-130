@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ms"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>MUSIX Control — YouTube Session</title>
+<link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div class="shell">
+<aside class="sidebar">
+ <div class="brand"><span class="brandicon">♫</span><div><strong>MUSIX</strong><small>CONTROL CENTER</small></div></div>
+ <div class="sidelabel">ADMIN WORKSPACE</div>
+ <nav><a class="current" href="/admin">◉ &nbsp; YouTube Session</a><a href="#activity">▤ &nbsp; Activity Logs</a><a href="#security">♙ &nbsp; Security</a></nav>
+ <div class="sidefoot">Isolated Browser Worker<small>Admin only • Google credentials never enter Musix</small></div>
+</aside>
+<main>
+ <div class="top"><div><small class="eyebrow">MUSIX / SECURE IDENTITY</small><h1>YouTube Session</h1><p>Real browser profile management. No saved Google password.</p></div><button class="ghost" id="logout" hidden>Log out</button></div>
+ <section id="loginPanel" class="panel login">
+   <div class="eyebrow">OWNER AUTHENTICATION</div><h2>Sign in to Musix Control</h2>
+   <p>Use the private admin passphrase and 6-digit authenticator code. This is <b>not</b> Google sign-in.</p>
+   <form id="loginForm" autocomplete="off">
+    <label>Admin passphrase <input id="adminPassword" type="password" minlength="12" autocomplete="current-password" required></label>
+    <label>Authenticator (TOTP) <input id="adminOtp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required></label>
+    <button class="primary" type="submit">Unlock admin dashboard →</button>
+   </form><div id="loginError" class="alert" role="status"></div>
+ </section>
+ <div id="dashboard" hidden>
+  <div class="stats">
+    <div class="stat"><small>YOUTUBE ACCOUNT</small><strong id="accountStatus">Loading</strong><span id="accountDesc">Checking worker</span></div>
+    <div class="stat"><small>BROWSER WORKER</small><strong id="workerStatus">Checking</strong><span>Separate Chromium process</span></div>
+    <div class="stat"><small>PROFILE STORAGE</small><strong id="profileStatus">Unknown</strong><span>Persistent encrypted host mount required</span></div>
+  </div>
+  <div class="columns">
+   <section class="panel">
+    <div class="row"><div><h2>▶ YouTube Connection</h2><p>Connect your own Google account inside the real browser worker.</p></div><span class="pill" id="sessionPill">Not connected</span></div>
+    <div class="account"><span class="yt">▶</span><div><strong id="accountName">Google account not connected</strong><small>Credentials belong only to the real Google page, never to Musix.</small></div></div>
+    <div class="two"><div><small>Last verified</small><strong id="lastChecked">Never</strong></div><div><small>Authorization</small><strong>Owner + MFA</strong></div></div>
+    <div class="actions"><button class="primary" id="connect">▣ Open secure browser</button><button id="verify" class="secondary">↻ Verify session</button></div>
+    <div id="statusMessage" class="message" role="status">You can browse YouTube only after opening an admin-only browser ticket.</div>
+   </section>
+   <section class="panel">
+    <h2>Browser worker</h2><p>One isolated Chromium profile; restart-safe storage when mounted correctly.</p>
+    <div class="architecture"><div>◉ Dashboard</div><span>→</span><div>▣ Chromium</div><span>→</span><div>⬡ Vault</div></div>
+    <div class="kv"><div><span>Browser control</span><b>One-time ticket • 5 min</b></div><div><span>Live connection</span><b>Encrypted HTTPS/WSS</b></div><div><span>Profile secrets</span><b>Not exposed to UI or logs</b></div><div><span>Worker health</span><b id="health">Checking</b></div></div>
+    <div class="actions"><button class="secondary" id="lock">⌁ Lock remote browser</button><button class="danger" id="revoke">Revoke profile</button></div>
+   </section>
+  </div>
+  <section class="panel lower" id="security"><div class="row"><h2>Secure login journey</h2><span class="pill">4 steps</span></div>
+   <div class="journey"><div><b>01 • Authenticate</b><span>Owner passphrase + TOTP</span></div><div><b>02 • Open real browser</b><span>Real address bar, no fake Google form</span></div><div><b>03 • Google login & 2FA</b><span>Credentials entered at Google directly</span></div><div><b>04 • Verify & lock</b><span>Profile remains in isolated vault</span></div></div>
+  </section>
+  <section class="panel lower" id="activity"><div class="row"><h2>Session activity</h2><button id="refresh" class="secondary">Refresh</button></div><p>Audit records only status and time — no account names, URLs, cookies, tokens or input.</p><div id="activityList" class="events"><div>Waiting for data…</div></div></section>
+ </div>
+</main>
+</div>
+<script type="module" src="/static/dashboard.js"></script>
+</body></html>
