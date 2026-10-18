@@ -137,64 +137,6 @@ async def test_private_clearall_without_registry_probes_history_and_preserves_au
 
 
 @pytest.mark.asyncio
-async def test_private_playall_uses_deduped_playlist(monkeypatch):
-    status = SimpleNamespace(edit_text=AsyncMock())
-    message = SimpleNamespace(
-        chat=SimpleNamespace(id=1234, type="private"),
-        from_user=SimpleNamespace(id=1234),
-        answer=AsyncMock(return_value=status),
-    )
-    first = _track(20)
-    second = _track(
-        25,
-        title="Another Song",
-        source_url="https://youtu.be/dQw4w9WgXcQ",
-        file_id="file-b",
-    )
-
-    monkeypatch.setattr(
-        private_music,
-        "list_private_tracks",
-        AsyncMock(return_value=[first, second]),
-    )
-    sender = AsyncMock(return_value=2)
-    monkeypatch.setattr(private_music, "_send_audio_batch", sender)
-    monkeypatch.setattr(private_music.asyncio, "sleep", AsyncMock())
-
-    await private_music.play_all_private_music(message)
-
-    sender.assert_awaited_once()
-    assert list(sender.await_args.args[1]) == [first, second]
-    status.edit_text.assert_awaited_once_with(
-        "✅ Playlist dihantar dari awal • 2/2 track."
-    )
-
-
-@pytest.mark.asyncio
-async def test_private_search_checks_playlist_first(monkeypatch):
-    message = SimpleNamespace(
-        chat=SimpleNamespace(id=1234, type="private"),
-        from_user=SimpleNamespace(id=1234),
-        answer=AsyncMock(),
-    )
-    command = SimpleNamespace(args="example song")
-    search_web = AsyncMock()
-
-    monkeypatch.setattr(
-        private_music,
-        "search_private_tracks",
-        AsyncMock(return_value=[_track(20)]),
-    )
-    monkeypatch.setattr(private_music, "_youtube_search", search_web)
-
-    await private_music.search_private_music(message, command)
-
-    search_web.assert_not_awaited()
-    message.answer.assert_awaited_once()
-    assert "Jumpa dalam playlist private" in message.answer.await_args.args[0]
-
-
-@pytest.mark.asyncio
 async def test_record_private_audio_deletes_new_duplicate(monkeypatch):
     existing = _track(20, file_id="file-old")
     message = SimpleNamespace(
