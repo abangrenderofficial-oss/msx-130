@@ -159,6 +159,48 @@ python main.py
 
 On startup the bot initializes the database schema via Alembic migrations automatically.
 
+## Musix video-to-audio rescue (experimental)
+
+Musix has an **isolated** fallback that adapts MediaX's yt-dlp + FFmpeg
+video handling; it does **not** import or change MediaX. It activates only
+when the existing YouTube audio/worker paths fail:
+
+- Inspect available formats using yt-dlp metadata (no video download yet).
+- If a progressive video contains audio, prioritize known **audio bitrate**,
+  and among equivalent audio candidates choose the smallest video download.
+- If progressive formats fail/unavailable, attempt a small video + best audio
+  merge (MediaX-style); this still requires access to the audio stream.
+- Use FFmpeg to extract MP3, verify the real MP3 stream and duration with
+  FFprobe, and continue the existing Musix Telegram delivery/cache flow.
+- Limit source videos to 150 MB by default and clean up unsuccessful attempts.
+
+No cookie export is mandatory for this fallback, but it respects existing
+yt-dlp access settings if they have already been configured. It cannot
+circumvent YouTube authentication, IP restrictions, or DRM.
+
+Optional settings:
+
+```env
+MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED=1
+MUSIX_YOUTUBE_VIDEO_AUDIO_MAX_MB=150
+# Try local yt-dlp audio before the worker; video fallback immediately follows it:
+MUSIX_YOUTUBE_LOCAL_FIRST=1
+```
+
+With `MUSIX_YOUTUBE_LOCAL_FIRST=0`, the video fallback is the final
+attempt after the existing worker and relay fallbacks. Disable the feature
+via `MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED=0` to restore existing behavior.
+
+The displayed adaptive MP3 bitrate is an *encoding setting*, not a
+measurement of YouTube source fidelity. Higher output bitrate cannot
+restore audio detail absent from the original.
+
+Offline checks:
+`pytest -q tests/test_youtube_video_audio_fallback.py`
+(includes one real synthetic-audio FFmpeg/FFprobe validation; no YouTube
+or Telegram calls). Actual YouTube/Telegram success requires a separate
+authorized end-to-end test on the host where Musix is deployed.
+
 ## YouTube Cookies
 
 Some YouTube videos need an authenticated browser session for `yt-dlp` to work correctly. The bot automatically uses `cookies/youtube.txt` when that file exists. You can also override the path with `YTDLP_YOUTUBE_COOKIES_FILE`.
