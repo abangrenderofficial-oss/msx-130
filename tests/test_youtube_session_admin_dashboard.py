@@ -3,9 +3,7 @@ import base64
 import hashlib
 import hmac
 import importlib.util
-import secrets
 import struct
-import time
 from pathlib import Path
 
 import pytest
