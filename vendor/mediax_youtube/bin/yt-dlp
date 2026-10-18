@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "${MUSIX_MEDIA_PYTHON:-python3}" -m yt_dlp "$@"
