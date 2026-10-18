@@ -637,6 +637,24 @@ async def _run_music_selftest_from_env() -> None:
                 await cleanup_music_result(result)
 
 
+async def _start_musix_admin_web():
+    """Use existing Bot Hosting deployment HTTP port, independent of Telegram polling."""
+    from admin.youtube_session.dashboard_server import create_app as create_dashboard
+
+    application = create_dashboard()
+    runner = web.AppRunner(application, access_log=None)
+    await runner.setup()
+    port = int(os.getenv("SERVER_PORT") or os.getenv("PORT") or "8080")
+    try:
+        site = web.TCPSite(runner, host="0.0.0.0", port=port)
+        await site.start()
+    except Exception:
+        await runner.cleanup()
+        raise
+    logging.info("[MUSIX-WEB] Website listening on existing Bot Hosting port %s", port)
+    return runner
+
+
 async def main():
     analytics_started = False
     with logging.context(flow="startup", request_id="bot-startup"):
@@ -702,6 +720,12 @@ async def main():
                 bot_username=bot_me.username,
             )
             logging.info("[STARTUP] Bot started successfully. Listening for updates...")
+            if os.getenv("MUSIX_DASHBOARD_TELEGRAM_AUTH") == "1" and not webhook_base_url:
+                # Website exceptions must never crash the Telegram bot.
+                try:
+                    admin_web_runner = await _start_musix_admin_web()
+                except Exception as exc:
+                    logging.error("[MUSIX-WEB] Startup error: %s", type(exc).__name__)
             if webhook_base_url:
                 await _run_webhook_server(webhook_base_url)
             else:
@@ -714,6 +738,9 @@ async def main():
                     ),
                 )
         finally:
+            if "admin_web_runner" in locals():
+                with suppress(Exception):
+                    await admin_web_runner.cleanup()
             logging.info("[SHUTDOWN] Bot shutting down...")
             logging.event("bot_transport_stopping")
             if "heartbeat_task" in locals():
