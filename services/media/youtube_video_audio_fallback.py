@@ -1,7 +1,7 @@
 """Musix-only video-to-audio fallback, inspired by MediaX's yt-dlp/FFmpeg route.
 
 Works on videos the bot is permitted to access. No MediaX imports or shared bot
-state. This is a fallback; it does not replace the existing audio downloader.
+state. This is the first YouTube download attempt; legacy fallbacks remain available.
 """
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from yt_dlp import YoutubeDL
 
 from services.logger import logger as logging
 from services.platforms.youtube_media import build_ytdlp_youtube_options
-from services.platforms.ytdlp_helpers import mp3_extract_postprocessors
 
 logging = logging.bind(service="musix_video_audio_fallback")
 
@@ -135,23 +134,60 @@ def _verified_mp3(out_template: str) -> str:
     return filename
 
 
+def _downloaded_video_path(video_template: str, max_bytes: int) -> str:
+    prefix = video_template.replace(".%(ext)s", "")
+    candidates = sorted(
+        path for path in glob.glob(prefix + ".*")
+        if os.path.isfile(path)
+        and os.path.splitext(path)[1].lower() in {".mp4", ".mkv", ".webm", ".mov"}
+    )
+    for path in candidates:
+        size = os.path.getsize(path)
+        if 2048 <= size <= max_bytes:
+            return path
+    raise RuntimeError("YouTube video download did not produce a complete usable video")
+
+
+def _verified_video(path: str) -> None:
+    """Prove the downloaded input has *both* video and real audio."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "stream=codec_type,codec_name:format=duration", "-of", "json", path],
+        capture_output=True, text=True, check=True, timeout=15,
+    )
+    data = json.loads(result.stdout)
+    codecs = {str(item.get("codec_type")) for item in data.get("streams", [])}
+    if not {"video", "audio"}.issubset(codecs):
+        raise RuntimeError("Downloaded YouTube video has no video+audio streams")
+    if not _positive_number((data.get("format") or {}).get("duration")):
+        raise RuntimeError("Downloaded YouTube video has no valid duration")
+
+
+def _extract_downloaded_video_to_mp3(video_path: str, out_template: str, bitrate: int) -> str:
+    target = out_template.replace(".%(ext)s", ".mp3")
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+         "-y", "-i", video_path, "-map", "0:a:0", "-vn",
+         "-c:a", "libmp3lame", "-b:a", f"{bitrate}k", target],
+        capture_output=True, text=True, timeout=180, check=True,
+    )
+    return _verified_mp3(out_template)
+
+
 def download_youtube_video_as_mp3(
     url: str, out_template: str, *, bitrate_kbps: int
 ) -> str:
-    """Scan available muxed formats; extract audio from the smallest suitable video.
+    """Video FIRST: download actual media file, verify audio, *then* extract MP3.
 
-    If no muxed format can be downloaded, try a MediaX-style low-resolution
-    video + best audio merge. This does NOT bypass YouTube authentication,
-    download permissions, DRM, or IP restrictions.
+    Unlike a yt-dlp FFmpegExtractAudio postprocessor, the original video file
+    remains available for validation before conversion. The video is removed
+    after processing. A YouTube login/IP block still prevents the download.
     """
     max_bytes = _source_limit()
+    video_template = out_template.replace(".%(ext)s", "-video.%(ext)s")
     metadata_opts = build_ytdlp_youtube_options(
-        skip_download=True,
-        ignore_no_formats_error=True,
-        noplaylist=True,
-        quiet=True,
-        socket_timeout=12,
-        retries=1,
+        skip_download=True, ignore_no_formats_error=True, noplaylist=True,
+        quiet=True, socket_timeout=12, retries=1,
     )
     formats: list[dict[str, Any]] = []
     try:
@@ -161,62 +197,64 @@ def download_youtube_video_as_mp3(
             raise RuntimeError("YouTube returned no format metadata")
         if info.get("is_live") or info.get("live_status") == "is_live":
             raise RuntimeError("Live video is not supported")
-        formats = select_video_audio_formats(info.get("formats") or [], max_bytes=max_bytes)
+        formats = select_video_audio_formats(
+            info.get("formats") or [], max_bytes=max_bytes,
+        )
     except Exception as exc:
-        # Even if metadata is blocked, allow one direct MediaX-style attempt.
-        logging.warning("Muxed format scan unavailable: error=%s", str(exc)[-200:])
+        logging.warning("Video format metadata unavailable: error=%s", str(exc)[-200:])
 
-    # Keep format IDs from a single probe. Avoid downloading every resolution.
-    attempts: list[tuple[str, float | None, str]] = []
-    for fmt in formats[:4]:
-        attempts.append((
-            str(fmt["format_id"]),
-            _positive_number(fmt.get("abr")),
-            f'muxed:{fmt["format_id"]}',
-        ))
-    # For videos whose audio is exposed only separately, mirror the MediaX
-    # ffmpeg merge workflow at the lowest practical video size.
+    attempts: list[tuple[str, float | None, str]] = [
+        (str(fmt["format_id"]), _positive_number(fmt.get("abr")), f'muxed:{fmt["format_id"]}')
+        for fmt in formats[:4]
+    ]
+    # Same yt-dlp merging method that MediaX uses when progressive video+audio
+    # is not available. Both video and audio streams must be downloadable.
     attempts.append((
         "bestvideo[height<=480]+bestaudio[ext=m4a]/"
         "bestvideo[height<=480]+bestaudio/"
         "bestvideo[height<=720]+bestaudio",
-        None,
-        "mediax-style:video+audio",
+        None, "mediax-style:video+audio",
     ))
-
     errors: list[str] = []
-    for format_selector, source_abr, label in attempts:
+    for selector, source_abr, label in attempts:
+        _cleanup_outputs(video_template)
         _cleanup_outputs(out_template)
-        output_kbps = _mp3_bitrate_kbps(source_abr, bitrate_kbps)
         options = build_ytdlp_youtube_options(
-            format=format_selector,
-            outtmpl=out_template,
-            postprocessors=mp3_extract_postprocessors(str(output_kbps)),
-            merge_output_format="mkv",
-            noplaylist=True,
-            quiet=True,
-            no_warnings=True,
-            socket_timeout=15,
-            retries=1,
-            fragment_retries=1,
+            format=selector, outtmpl=video_template, merge_output_format="mkv",
+            noplaylist=True, quiet=True, no_warnings=True,
+            socket_timeout=15, retries=1, fragment_retries=1,
             max_filesize=max_bytes,
         )
         try:
+            # STEP 1: Download VIDEO, with audio, to a real temporary file.
             with YoutubeDL(options) as ydl:
-                result = ydl.download([url])
-            if result not in (0, None):
-                raise RuntimeError(f"yt-dlp exit status {result}")
-            filename = _verified_mp3(out_template)
+                status = ydl.download([url])
+            if status not in (0, None):
+                raise RuntimeError(f"Video download failed: yt-dlp exit {status}")
+            video_path = _downloaded_video_path(video_template, max_bytes)
+            # STEP 2: Reject missing/silent/fake media before conversion.
+            _verified_video(video_path)
             logging.info(
-                "Video-to-audio succeeded: strategy=%s output_kbps=%s source_abr=%s bytes=%s",
-                label, output_kbps, source_abr, os.path.getsize(filename),
+                "MUSIX_VIDEO_DOWNLOAD_OK: bytes=%s strategy=%s",
+                os.path.getsize(video_path), label,
             )
-            return filename
+            # STEP 3: Extract audio ONLY after full downloaded-video validation.
+            output_kbps = _mp3_bitrate_kbps(source_abr, bitrate_kbps)
+            mp3_path = _extract_downloaded_video_to_mp3(
+                video_path, out_template, output_kbps,
+            )
+            logging.info(
+                "MUSIX_VIDEO_TO_MP3_OK: strategy=%s output_kbps=%s mp3_bytes=%s",
+                label, output_kbps, os.path.getsize(mp3_path),
+            )
+            return mp3_path
         except Exception as exc:
             errors.append(f"{label}: {type(exc).__name__}: {str(exc)[-180:]}")
             logging.warning(
-                "Video-to-audio candidate failed: strategy=%s error_type=%s",
+                "MUSIX_VIDEO_DOWNLOAD_OR_CONVERT_FAIL: strategy=%s error_type=%s",
                 label, type(exc).__name__,
             )
+        finally:
+            _cleanup_outputs(video_template)
     _cleanup_outputs(out_template)
-    raise RuntimeError("Video-to-audio exhausted: " + " | ".join(errors[-5:]))
+    raise RuntimeError("Video-first attempts exhausted: " + " | ".join(errors[-5:]))
