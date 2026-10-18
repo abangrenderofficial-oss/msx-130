@@ -34,6 +34,8 @@ async function refresh() {
   $("#profileStatus").textContent = status.profile_present ? "Profile present" : "No profile";
   $("#lastChecked").textContent = status.last_checked ? new Date(status.last_checked * 1000).toLocaleString() : "Never";
   $("#verify").disabled = status.worker !== "RUNNING";
+  $("#connect").disabled = status.worker !== "RUNNING";
+  $("#revoke").disabled = status.worker !== "RUNNING";
   $("#activityList").replaceChildren();
   for (const event of events.events || []) {
     const row = document.createElement("div");
@@ -71,15 +73,13 @@ $("#loginForm").addEventListener("submit", async (event) => {
       credentials:"same-origin",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
-        password:$("#adminPassword").value,
-        totp:$("#adminOtp").value,
+        code:$("#loginCode").value,
       }),
     });
-    if (!response.ok) throw new Error("Passphrase atau authenticator tidak sah.");
+    if (!response.ok) throw new Error("Kod tidak sah atau sudah tamat tempoh. Hantar /sessionlogin semula.");
     const json = await response.json();
     csrf = json.csrf;
-    $("#adminPassword").value = "";
-    $("#adminOtp").value = "";
+    $("#loginCode").value = "";
     await init();
   } catch(e) { error.textContent = e.message; }
 });
@@ -118,6 +118,6 @@ $("#revoke").addEventListener("click", async () => {
 });
 $("#refresh").addEventListener("click", refresh);
 $("#logout").addEventListener("click", async () => {
-  try { await api("/api/logout", "POST", {}); } finally { location.assign("/admin/login"); }
+  try { await api("/api/logout", "POST", {}); } finally { location.assign("/admin/youtube-session"); }
 });
 init();
