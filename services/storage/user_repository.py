@@ -1,5 +1,7 @@
 import time
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -9,9 +11,12 @@ from services.logger import logger as logging
 from services.settings import SETTING_DISABLED, SETTING_FIELDS, SETTING_VALUES, normalize_setting_value
 from services.storage.models import (
     DEFAULT_USER_SETTINGS,
+    AdminPrivateAudioUsage,
+    AnalyticsEvent,
     BotUserRegistry,
     Group,
     GroupMember,
+    MusicGroupSettings,
     Settings,
     User,
 )
@@ -159,6 +164,81 @@ class UserRepositoryMixin:
                 )
             )
             return int(total or 0)
+
+    async def get_musix_bot_statistics(self) -> dict[str, int]:
+        """Exact MusiX-only dashboard counts.
+
+        The source-scoped registry is the identity authority: username is
+        mutable, and MediaX may eventually share the database server. The
+        activity and request numbers are analytics EVENTS, never assumed to
+        be completed downloads. Successfully sent audio is counted only for
+        private messages recorded since monitor tracking was introduced.
+        """
+        now = datetime.now(ZoneInfo("Asia/Kuala_Lumpur"))
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        active_after = now - timedelta(days=30)
+        musix_user = (
+            BotUserRegistry.bot_id == "musix",
+            BotUserRegistry.telegram_user_id > 0,
+        )
+        async with self.SessionLocal() as session:
+            total = await session.scalar(
+                select(func.count())
+                .select_from(BotUserRegistry)
+                .where(*musix_user)
+            )
+            active = await session.scalar(
+                select(func.count(func.distinct(AnalyticsEvent.user_id)))
+                .select_from(AnalyticsEvent)
+                .join(
+                    BotUserRegistry,
+                    (BotUserRegistry.telegram_user_id == AnalyticsEvent.user_id)
+                    & (BotUserRegistry.bot_id == "musix"),
+                )
+                .where(
+                    AnalyticsEvent.created_at >= active_after,
+                    AnalyticsEvent.user_id > 0,
+                )
+            )
+            requests = await session.scalar(
+                select(func.count())
+                .select_from(AnalyticsEvent)
+                .join(
+                    BotUserRegistry,
+                    (BotUserRegistry.telegram_user_id == AnalyticsEvent.user_id)
+                    & (BotUserRegistry.bot_id == "musix"),
+                )
+                .where(
+                    AnalyticsEvent.created_at >= month_start,
+                    AnalyticsEvent.user_id > 0,
+                    AnalyticsEvent.action_name.like("%_audio"),
+                )
+            )
+            delivered_private = await session.scalar(
+                select(func.count())
+                .select_from(AdminPrivateAudioUsage)
+                .join(
+                    BotUserRegistry,
+                    (BotUserRegistry.telegram_user_id == AdminPrivateAudioUsage.user_id)
+                    & (BotUserRegistry.bot_id == "musix"),
+                )
+                .where(
+                    AdminPrivateAudioUsage.created_at >= month_start,
+                    AdminPrivateAudioUsage.user_id > 0,
+                )
+            )
+            groups = await session.scalar(
+                select(func.count())
+                .select_from(MusicGroupSettings)
+                .where(MusicGroupSettings.connected.is_(True))
+            )
+        return {
+            "total_users": int(total or 0),
+            "active_last_30_days": int(active or 0),
+            "audio_requests_this_month": int(requests or 0),
+            "private_audio_delivered_this_month": int(delivered_private or 0),
+            "connected_music_groups": int(groups or 0),
+        }
 
     async def upsert_group(
         self,
