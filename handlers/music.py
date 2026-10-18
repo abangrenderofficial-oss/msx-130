@@ -371,8 +371,16 @@ async def redirect_music_inline_to_private(query: types.InlineQuery) -> None:
 
 
 def _youtube_fast_worker_enabled() -> bool:
-    # Disabling only the *first* fast-worker attempt leaves cache, local
-    # yt-dlp, and the existing conversion path intact.
+    # With video-first enabled the bot MUST reach the actual video-download
+    # path before calling a remote audio worker. Cache lookups still run first.
+    enabled_values = {"1", "true", "yes", "on"}
+    video_first_enabled = (
+        os.getenv("MUSIX_YOUTUBE_VIDEO_FIRST", "1").strip().lower() in enabled_values
+        and os.getenv("MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED", "1")
+        .strip().lower() in enabled_values
+    )
+    if video_first_enabled:
+        return False
     return (os.getenv("MUSIX_YOUTUBE_FAST_WORKER_ENABLED") or "1").strip().lower() not in {
         "0", "false", "no", "off"
     }
