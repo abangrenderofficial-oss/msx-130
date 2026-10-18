@@ -89,6 +89,8 @@ $("#connect").addEventListener("click", async () => {
     show("Creating one-time remote browser ticket...");
     const ticket = await api("/api/browser-ticket", "POST", {});
     // Same-origin browser control page; no Google password ever enters dashboard.
+    // Keep control tickets out of the browser address bar and normal HTTP access logs.
+    sessionStorage.setItem("musix_browser_ticket", ticket.ticket);
     location.assign(ticket.url);
   } catch(e) { show("Gagal buka browser: " + e.message); }
 });
