@@ -16,7 +16,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     inspector = sa.inspect(op.get_bind())
-    created = False
     if "bot_user_registry" not in inspector.get_table_names():
         op.create_table(
             "bot_user_registry",
@@ -36,7 +35,6 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("bot_id", "telegram_user_id"),
         )
         op.create_index("ix_bot_user_registry_bot", "bot_user_registry", ["bot_id"])
-        created = True
     # This Alembic migration runs only against MusiX's isolated runtime schema.
     # Existing MusiX users (including those without usernames) count exactly once.
     # Never import or query PayPing / MediaX tables during backfill.
