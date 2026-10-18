@@ -216,7 +216,17 @@ async def api_me(request: web.Request):
 
 async def worker_rpc(method: str, path: str) -> dict:
     if BOT_HOSTING_MODE and not WORKER_SECRET:
-        return {"status": "WORKER_OFFLINE", "worker": "WORKER_OFFLINE", "profile_present": False}
+        # Do not pretend Chromium is installed, running or connected.
+        # The existing Bot Hosting runtime blocks unprivileged namespaces;
+        # a persistent signed-in Google profile has NOT been provisioned.
+        return {
+            "status": "WORKER_NOT_CONFIGURED",
+            "worker": "WORKER_OFFLINE",
+            "profile_present": False,
+            "can_open_browser": False,
+            "blocker": "CHROMIUM_SANDBOX_UNAVAILABLE",
+            "next_step": "Provision an isolated browser runtime with a working sandbox before Google login.",
+        }
     async with ClientSession() as client:
         try:
             async with client.request(
