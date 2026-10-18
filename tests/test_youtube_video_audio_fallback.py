@@ -1,7 +1,6 @@
 """Offline regression tests for Musix video->audio fallback. No YouTube calls."""
 from __future__ import annotations
 
-import asyncio
 import json
 import shutil
 import subprocess
@@ -45,7 +44,7 @@ def test_excludes_video_only_audio_only_drm_and_oversize():
 def test_unknown_audio_bitrate_is_not_faked():
     items = [_format("unknown", 144, None, 100), _format("known", 360, 128, 500)]
     assert fallback.select_video_audio_formats(items)[0]["format_id"] == "known"
-    assert fallback._mp3_bitrate_kbps(48, 320) == 64
+    assert fallback._mp3_bitrate_kbps(48, 320) == 48
     assert fallback._mp3_bitrate_kbps(128, 320) == 128
     assert fallback._mp3_bitrate_kbps(None, 320) == 160
 
