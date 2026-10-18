@@ -1,9 +1,8 @@
 import RFB from "/novnc/core/rfb.js";
 
-const query = new URLSearchParams(location.search);
-const ticket = query.get("ticket") || "";
-// Remove ticket from address bar/referrer as soon as module runs.
-history.replaceState({}, "", "/browser");
+const ticket = sessionStorage.getItem("musix_browser_ticket") || "";
+sessionStorage.removeItem("musix_browser_ticket");
+// Ticket is never placed in the browser page URL or localStorage.
 const notice = document.getElementById("browserNotice");
 const banner = document.getElementById("remoteStatus");
 let csrf = "";
