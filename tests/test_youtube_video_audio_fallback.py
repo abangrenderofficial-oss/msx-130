@@ -157,3 +157,39 @@ async def test_video_fallback_can_be_disabled(monkeypatch, tmp_path):
     monkeypatch.setattr(music, "_run_youtube_worker_mp3_sync", lambda *_args: "/tmp/existing-worker.mp3")
     result = await music._download_mp3("https://youtu.be/demo", work_dir=str(tmp_path), bitrate_kbps=192, source="youtube")
     assert result == "/tmp/existing-worker.mp3"
+
+
+@pytest.mark.asyncio
+async def test_blocked_youtube_metadata_uses_title_only_to_reach_rescue(monkeypatch):
+    monkeypatch.setenv("MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED", "1")
+    monkeypatch.setattr(
+        music, "_extract_info_sync",
+        lambda *_a: (_ for _ in ()).throw(music.MusicDownloadError("YouTube login challenge")),
+    )
+    monkeypatch.setattr(
+        music, "_youtube_oembed_info_sync",
+        lambda _url: {"id": "abcdefghijk", "title": "Public track", "uploader": "Creator"},
+    )
+    result = await music.fetch_music_metadata(
+        "https://youtu.be/abcdefghijk", source="youtube", timeout_seconds=5
+    )
+    assert result.title == "Public track"
+    assert result.performer == "Creator"
+    assert result.duration is None  # oEmbed is metadata, not verified audio
+
+
+@pytest.mark.asyncio
+async def test_metadata_rescue_disabled_preserves_original_error(monkeypatch):
+    monkeypatch.setenv("MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED", "0")
+    monkeypatch.setattr(
+        music, "_extract_info_sync",
+        lambda *_a: (_ for _ in ()).throw(music.MusicDownloadError("YouTube challenge")),
+    )
+    monkeypatch.setattr(
+        music, "_youtube_oembed_info_sync",
+        lambda *_url: (_ for _ in ()).throw(AssertionError("must not call oembed")),
+    )
+    with pytest.raises(music.MusicDownloadError, match="YouTube challenge"):
+        await music.fetch_music_metadata(
+            "https://youtu.be/abcdefghijk", source="youtube", timeout_seconds=5
+        )
