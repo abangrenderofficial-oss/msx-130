@@ -373,10 +373,32 @@ async def fetch_music_metadata(
     source: str,
     timeout_seconds: float = 45.0,
 ) -> MusicMetadata:
-    info = await asyncio.wait_for(
-        asyncio.to_thread(_extract_info_sync, url, source),
-        timeout=max(1.0, float(timeout_seconds)),
-    )
+    try:
+        info = await asyncio.wait_for(
+            asyncio.to_thread(_extract_info_sync, url, source),
+            timeout=max(1.0, float(timeout_seconds)),
+        )
+    except (MusicDownloadError, asyncio.TimeoutError) as metadata_error:
+        # Metadata is NOT proof that audio is downloadable. If YouTube's
+        # extractor blocks title lookup, still let the independent downloader
+        # attempts run using only public oEmbed title/author information.
+        video_rescue_enabled = (
+            os.getenv("MUSIX_YOUTUBE_VIDEO_AUDIO_FALLBACK_ENABLED", "1")
+            .strip().lower() not in {"0", "false", "no", "off"}
+        )
+        if source != "youtube" or not video_rescue_enabled:
+            raise
+        try:
+            info = await asyncio.wait_for(
+                asyncio.to_thread(_youtube_oembed_info_sync, url),
+                timeout=8.0,
+            )
+            logging.info(
+                "YouTube public title recovered; media remains unverified: error_type=%s",
+                type(metadata_error).__name__,
+            )
+        except Exception:
+            raise metadata_error
     return build_music_metadata(info, source=source, source_url=url)
 
 
