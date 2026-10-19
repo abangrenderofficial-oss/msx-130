@@ -125,3 +125,54 @@ async def test_opt_in_musix_routing_does_not_call_old_worker(monkeypatch, tmp_pa
         source="youtube",
     )
     assert output.endswith("source.mp3")
+
+
+def test_po_token_provider_config_reaches_both_ytdlp_stages(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIX_VIDEO_FIRST_POT_PROVIDER_URL", "http://127.0.0.1:4416")
+    observed = []
+    real_builder = video_first.build_ytdlp_youtube_options
+
+    def track_builder(**kwargs):
+        observed.append(kwargs)
+        return real_builder(**kwargs)
+
+    class MetadataOnly:
+        def __init__(self, opts):
+            self.opts = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def extract_info(self, *_args, **_kwargs):
+            return {"formats": [_v("18", abr=96, size=1000)]}
+
+        def download(self, _urls):
+            raise RuntimeError("Stop after verifying downloader options")
+
+    monkeypatch.setattr(video_first, "build_ytdlp_youtube_options", track_builder)
+    with pytest.raises(video_first.VideoFirstError, match="acquisition failed"):
+        video_first._run_video_first(
+            "https://youtu.be/dQw4w9WgXcQ",
+            str(tmp_path / "source.%(ext)s"),
+            192,
+            ydl_factory=MetadataOnly,
+        )
+    assert len(observed) == 2
+    for kwargs in observed:
+        assert kwargs["extractor_args"]["youtubepot-bgutilhttp"]["base_url"] == [
+            "http://127.0.0.1:4416"
+        ]
+        assert kwargs["extractor_args"]["youtube"]["player_client"] == ["mweb"]
+    assert not list(tmp_path.glob("source-video.*"))
+
+
+def test_invalid_pot_provider_url_is_rejected(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIX_VIDEO_FIRST_POT_PROVIDER_URL", "ftp://wrong.example")
+    with pytest.raises(video_first.VideoFirstError, match="provider URL"):
+        video_first._run_video_first(
+            "https://youtu.be/dQw4w9WgXcQ",
+            str(tmp_path / "source.%(ext)s"), 192,
+        )
