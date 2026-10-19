@@ -121,8 +121,24 @@ def _run_video_first(
     if target.exists():
         raise VideoFirstError("Audio output already exists; refusing to overwrite")
 
+    pot_server = (os.getenv("MUSIX_VIDEO_FIRST_POT_PROVIDER_URL") or "").strip()
+    # Same yt-dlp provider interface used by Desiders. The provider server
+    # must be operated independently; this flag never starts a remote service.
+    extractor_args: dict[str, dict[str, list[str]]] = {}
+    if pot_server:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(pot_server)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise VideoFirstError("Invalid self-hosted PO Token provider URL")
+        extractor_args = {
+            "youtubepot-bgutilhttp": {"base_url": [pot_server]},
+            "youtube": {"player_client": ["mweb"], "fetch_pot": ["always"]},
+        }
+
     try:
         options = build_ytdlp_youtube_options(
+            extractor_args=extractor_args,
             skip_download=True, noplaylist=True, ignore_no_formats_error=False,
             socket_timeout=12, retries=1, fragment_retries=1,
         )
@@ -133,6 +149,7 @@ def _run_video_first(
         fmt = _media_formats(metadata, max_height=max_height)
 
         options = build_ytdlp_youtube_options(
+            extractor_args=extractor_args,
             format=fmt,
             outtmpl=f"{video_base}.%(ext)s",
             merge_output_format="mkv",
