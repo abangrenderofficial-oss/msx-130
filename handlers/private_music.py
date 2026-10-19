@@ -133,7 +133,7 @@ async def clear_all_private_music(message: types.Message) -> None:
     # Only known text/link IDs may be removed. Telegram exposes no safe way to
     # inspect arbitrary old message IDs; sweeping could destroy untracked audio.
     text_ids = await get_text_message_ids(message.chat.id)
-    target_ids = (text_ids | source_ids | {current_message_id}) - audio_message_ids
+    target_ids = (text_ids | {current_message_id}) - audio_message_ids
     safe_mode = "tracked-text-only"
 
     deleted, failed = await delete_private_messages(
