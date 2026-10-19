@@ -14,6 +14,11 @@ from services.admin_music_monitor import (
     set_admin_music_monitor_group,
 )
 from services.logger import logger as logging
+from services.music_chat_cleanup import (
+    get_text_message_ids,
+    remove_only_duplicate_audio,
+    remove_text_entries,
+)
 from services.music_group_dedupe import (
     clean_music_title,
     dedupe_music_group_tracks,
@@ -81,6 +86,10 @@ async def _ensure_group_record(message: types.Message) -> None:
 
 
 async def _connected(message: types.Message) -> bool:
+    from services.admin_music_monitor import get_admin_music_monitor_group
+    monitor_id, _ = await get_admin_music_monitor_group()
+    if monitor_id is not None and int(monitor_id) == int(message.chat.id):
+        return False
     checker = getattr(db, "is_music_group_connected", None)
     if not callable(checker):
         return False
@@ -317,7 +326,6 @@ async def clear_all_group_text(message: types.Message) -> None:
     else:
         raw_tracks = list(await db.list_music_group_tracks(message.chat.id))
 
-    tracks, _duplicate_tracks = dedupe_music_group_tracks(raw_tracks)
     # /clearall is text/link cleanup only. Preserve EVERY audio message we
     # know about, including older duplicate songs. Duplicate prevention is
     # handled when a new song is sent, not by /clearall.
@@ -336,39 +344,19 @@ async def clear_all_group_text(message: types.Message) -> None:
     source_ids = set(await db.get_music_group_source_message_ids(message.chat.id))
     current_message_id = int(message.message_id)
 
-    # Render free restarts wipe the in-memory cleanup ledger, so /clearall
-    # cannot rely on tracked ids alone. Sweep the recent message-id range and
-    # explicitly preserve every song-audio message stored in the persistent
-    # Music Group playlist. This catches bot text, commands, link previews,
-    # failed-link replies and ordinary group text even after a redeploy.
-    known_ids = (
-        set(audio_message_ids)
-        | set(source_ids)
-        | set(tracked_ids)
-        | {current_message_id}
-    )
-    earliest_known = min(known_ids) if known_ids else current_message_id
-    sweep_floor = max(
-        1,
-        max(
-            current_message_id - _CLEARALL_SWEEP_LIMIT,
-            earliest_known - _CLEARALL_SWEEP_MARGIN,
-        ),
-    )
-    sweep_ids = set(range(sweep_floor, current_message_id + 1))
-
-    # Explicit ids are still included when they fall just outside the sweep.
-    # Known audio ids are never sent to Telegram's delete API.
-    target_ids = sweep_ids | tracked_ids | source_ids | {current_message_id}
-    target_ids.difference_update(audio_message_ids)
+    # Never sweep uninspected Telegram message-ID ranges. Only known text,
+    # link and command message IDs are safe to delete. Protect all audio IDs.
+    text_ids = await get_text_message_ids(message.chat.id)
+    target_ids = (text_ids | tracked_ids | source_ids | {current_message_id}) - audio_message_ids
+    sweep_floor = min(target_ids) if target_ids else current_message_id
 
     deleted, failed = await _delete_group_messages(
         message.chat.id,
         target_ids,
     )
 
-    for track in raw_tracks:
-        await _clean_group_audio_message(message.chat.id, track)
+    if deleted:
+        await remove_text_entries(message.chat.id, deleted)
 
     deleted_source_ids = sorted(source_ids.intersection(deleted))
     if deleted_source_ids:
@@ -390,4 +378,33 @@ async def clear_all_group_text(message: types.Message) -> None:
         len(deleted),
         len(failed),
         len(audio_message_ids),
+    )
+
+
+@router.message(Command("cleanduplicate"))
+async def clean_duplicate_group_music(message: types.Message) -> None:
+    if not await _require_group(message):
+        return
+    await _remember_command(message)
+    if not await _require_group_admin(message):
+        return
+    if not await _connected(message):
+        await _reply_tracked(
+            message,
+            "Command ini hanya untuk group /connectmusic, bukan /connectadminmusic.",
+        )
+        return
+    raw_lister = getattr(db, "list_music_group_tracks_raw", None)
+    if callable(raw_lister):
+        tracks = list(await raw_lister(message.chat.id))
+    else:
+        tracks = list(await db.list_music_group_tracks(message.chat.id))
+    removed, failed = await remove_only_duplicate_audio(
+        message.chat.id, "group", tracks,
+    )
+    await _reply_tracked(
+        message,
+        f"🎵 /cleanduplicate selesai. Audio berulang dipadam: {removed}."
+        + (f" Gagal dipadam: {failed}." if failed else "")
+        + " Audio unik dan caption dikekalkan.",
     )
