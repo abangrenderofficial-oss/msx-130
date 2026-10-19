@@ -174,6 +174,8 @@ async def _attempt(
             duration = 0
         if duration < 0.2:
             raise WorkerRouterError("worker_output_invalid_duration")
+    except WorkerRouterError:
+        raise
     except VideoFirstError as exc:
         raise WorkerRouterError("worker_output_invalid_media") from exc
     except (httpx.HTTPError, OSError, ValueError) as exc:
