@@ -109,6 +109,10 @@ def create_app(
         api=TelegramAPIServer.from_base(api_url),
         timeout=session_timeout,
     )
+    # Record outgoing *text only* so /clearall and 24h auto clear can
+    # remove status/error replies without touching any audio caption.
+    from services.music_chat_cleanup import track_outbound_bot_text
+    session.middleware.register(track_outbound_bot_text)
     default = DefaultBotProperties(parse_mode=ParseMode.HTML)
     bot = Bot(token=bot_token, default=default, session=session)
     dispatcher = Dispatcher()
