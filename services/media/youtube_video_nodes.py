@@ -10,7 +10,6 @@ import asyncio
 import json
 import os
 import re
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -82,8 +81,10 @@ def configured_nodes() -> list[WorkerNode]:
         local = parts.hostname in {"localhost", "127.0.0.1", "::1"}
         if parts.scheme != "https" and not (parts.scheme == "http" and local):
             raise WorkerRouterError("Worker URL requires HTTPS except local loopback")
-        if not parts.port and parts.scheme not in {"http", "https"}:
-            raise WorkerRouterError("Invalid worker URL port")
+        try:
+            _ = parts.port  # Accessing malformed ports raises ValueError.
+        except ValueError as exc:
+            raise WorkerRouterError("Invalid worker URL port") from exc
         result.append(WorkerNode(name=name, base_url=url.rstrip("/"), token=secret))
     return result
 
@@ -173,6 +174,8 @@ async def _attempt(
             duration = 0
         if duration < 0.2:
             raise WorkerRouterError("worker_output_invalid_duration")
+    except VideoFirstError as exc:
+        raise WorkerRouterError("worker_output_invalid_media") from exc
     except (httpx.HTTPError, OSError, ValueError) as exc:
         raise WorkerRouterError("worker_network_or_io_error") from exc
 
