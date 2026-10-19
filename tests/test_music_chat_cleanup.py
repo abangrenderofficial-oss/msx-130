@@ -158,3 +158,36 @@ async def test_daily_auto_cleanup_never_acts_on_admin_monitor_group(monkeypatch)
     deletions.assert_awaited_once()
     assert deletions.await_args.args[1:] == (42, [92])
     deleted_rows.assert_awaited_once_with(42, {92})
+
+
+@pytest.mark.asyncio
+async def test_outbound_bot_text_recorded_but_audio_is_never_tracked(monkeypatch):
+    from aiogram.methods import SendAudio, SendMessage
+
+    recorder = AsyncMock()
+    monkeypatch.setattr(music_chat_cleanup, "track_bot_text", recorder)
+    response = SimpleNamespace(
+        chat=SimpleNamespace(id=42, type="private"),
+        message_id=98,
+    )
+    request = AsyncMock(return_value=response)
+    await music_chat_cleanup.track_outbound_bot_text(
+        request, object(), SendMessage(chat_id=42, text="Processing..."),
+    )
+    recorder.assert_awaited_once_with(42, 98, "private")
+    recorder.reset_mock()
+    await music_chat_cleanup.track_outbound_bot_text(
+        request, object(), SendAudio(chat_id=42, audio="telegram-file-id"),
+    )
+    recorder.assert_not_awaited()
+
+
+def test_safe_cleanup_table_can_be_created_without_group_foreign_key():
+    from sqlalchemy import create_engine, inspect
+    from services.storage.models import MusicChatCleanupEntry
+
+    engine = create_engine("sqlite:///:memory:")
+    MusicChatCleanupEntry.__table__.create(bind=engine)
+    assert "music_chat_cleanup_entries" in inspect(engine).get_table_names()
+    assert inspect(engine).get_foreign_keys("music_chat_cleanup_entries") == []
+    engine.dispose()
