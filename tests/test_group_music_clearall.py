@@ -175,6 +175,13 @@ async def test_clearall_preserves_duplicate_audio_and_does_not_touch_caption(mon
 
     monkeypatch.setattr(group_music, "db", fake_db)
     monkeypatch.setattr(group_music, "bot", fake_bot)
+    monkeypatch.setattr(group_music, "get_text_message_ids", AsyncMock(return_value={204}))
+    monkeypatch.setattr(group_music, "remove_text_entries", AsyncMock())
+    from services import admin_music_monitor
+    monkeypatch.setattr(
+        admin_music_monitor, "get_admin_music_monitor_group",
+        AsyncMock(return_value=(None, None)),
+    )
     monkeypatch.setattr(group_music, "_CLEARALL_SWEEP_LIMIT", 50)
     monkeypatch.setattr(group_music, "_CLEARALL_SWEEP_MARGIN", 3)
     monkeypatch.setattr(
