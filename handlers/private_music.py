@@ -12,6 +12,12 @@ from services.music_group_dedupe import (
     clean_music_title,
     dedupe_music_group_tracks,
 )
+from services.music_chat_cleanup import (
+    active_audio_tracks,
+    get_text_message_ids,
+    remove_only_duplicate_audio,
+    remove_text_entries,
+)
 from services.private_music_playlist import (
     delete_private_messages,
     get_private_source_message_ids,
@@ -113,7 +119,6 @@ async def clear_all_private_music(message: types.Message) -> None:
         return
 
     raw_tracks = list(await list_private_tracks_raw(user.id))
-    _tracks, _duplicate_tracks = dedupe_music_group_tracks(raw_tracks)
 
     # Private /clearall is text/link cleanup only. It must never delete audio.
     # Duplicate prevention already happens when a new private song is sent.
@@ -125,67 +130,44 @@ async def clear_all_private_music(message: types.Message) -> None:
     source_ids = set(await get_private_source_message_ids(user.id))
     current_message_id = int(message.message_id)
 
-    if audio_message_ids:
-        # Sweep only inside the reliably tracked private-music window. Older
-        # history may contain audio sent before persistent tracking existed.
-        # Sweeping from message 1 would risk deleting those legacy songs.
-        anchor_ids = set(audio_message_ids) | set(source_ids)
-        earliest_tracked = min(anchor_ids)
-        sweep_floor = max(
-            1,
-            max(
-                current_message_id - _CLEARALL_SWEEP_LIMIT,
-                earliest_tracked,
-            ),
-        )
-        target_ids = (
-            set(range(sweep_floor, current_message_id + 1))
-            | source_ids
-            | {current_message_id}
-        )
-        # Every tracked audio is protected, including older duplicates.
-        target_ids.difference_update(audio_message_ids)
-        safe_mode = "tracked-sweep"
-    else:
-        # Legacy private history can predate persistent audio tracking. Probe
-        # each recent message by briefly forwarding it back into the same
-        # private chat. Telegram returns the forwarded Message object, so we
-        # can inspect whether it is audio before deciding what to delete.
-        sweep_floor = max(1, current_message_id - _LEGACY_PROBE_LIMIT)
-        target_ids = set(source_ids) | {current_message_id}
-        probed_audio_ids: set[int] = set()
-
-        for candidate_id in range(sweep_floor, current_message_id):
-            has_audio = await _probe_private_message_has_audio(
-                message.chat.id,
-                candidate_id,
-            )
-            if has_audio is True:
-                probed_audio_ids.add(candidate_id)
-            elif has_audio is False:
-                target_ids.add(candidate_id)
-            await asyncio.sleep(0.025)
-
-        audio_message_ids.update(probed_audio_ids)
-        target_ids.difference_update(audio_message_ids)
-        safe_mode = "legacy-probe"
+    # Only known text/link IDs may be removed. Telegram exposes no safe way to
+    # inspect arbitrary old message IDs; sweeping could destroy untracked audio.
+    text_ids = await get_text_message_ids(message.chat.id)
+    target_ids = (text_ids | source_ids | {current_message_id}) - audio_message_ids
+    safe_mode = "tracked-text-only"
 
     deleted, failed = await delete_private_messages(
         message.chat.id,
         target_ids,
     )
 
-    for track in raw_tracks:
-        await _clean_private_audio_message(message.chat.id, track)
+    if deleted:
+        await remove_text_entries(message.chat.id, deleted)
 
     logging.info(
         "Private clearall complete: user=%s mode=%s sweep=%s-%s "
         "deleted=%s failed=%s audio_preserved=%s",
         user.id,
         safe_mode,
-        sweep_floor,
+        min(target_ids) if target_ids else current_message_id,
         current_message_id,
         len(deleted),
         len(failed),
         len(audio_message_ids),
+    )
+
+
+@router.message(Command("cleanduplicate"), F.chat.type == "private")
+async def clean_duplicate_private_music(message: types.Message) -> None:
+    user = getattr(message, "from_user", None)
+    if user is None:
+        return
+    tracks = await list_private_tracks_raw(user.id)
+    removed, failed = await remove_only_duplicate_audio(
+        message.chat.id, "private", tracks,
+    )
+    await message.reply(
+        f"🎵 /cleanduplicate selesai. Audio berulang dipadam: {removed}."
+        + (f" Gagal dipadam: {failed}." if failed else "")
+        + " Audio unik dan caption dikekalkan."
     )
