@@ -13,11 +13,15 @@ Updated: 2026-10-19
 - Existing Telegram bot / cache / payment / other music platforms untouched.
 - Tested local synthetic video => playable MP3 with audio verification and
   cleanup. Regression tests pass.
-- **Real YouTube test** (video ID \`x-QghL7ntSg\`) from the isolated Bot
-  Hosting lab on 2026-10-19: the PO-token provider answered its health check,
-  but YouTube rejected metadata extraction with
-  \`Sign in to confirm you're not a bot\`. Therefore downloading real video
-  is NOT yet proven on the hosting IP.
+- **Real YouTube test, success:** video ID dQw4w9WgXcQ downloaded through the
+  new video-first pipeline in the isolated Bot Hosting lab on 2026-10-19.
+  Output: 3,409,848-byte MP3, 213.08s, stereo, 44.1kHz, 128kbps;
+  18.94s elapsed. FFprobe validation, full FFmpeg decode and video cleanup
+  passed. Telegram delivery was not performed.
+- **Real YouTube test, failure:** video ID x-QghL7ntSg on 2026-10-19
+  remained blocked by YouTube \`Sign in to confirm you're not a bot\` even
+  though the self-hosted PO-token provider's health check passed.
+  Thus partial success is proven, but broad reliability is NOT proven.
 - Do not conflate a healthy PO-token provider with successful YouTube access.
   Authentication / IP challenges may require changes to the deployment's
   allowed access path. Rotating or exporting account cookies manually is
@@ -76,7 +80,7 @@ Check lab status before enabling the flag on live Musix:
    the eventual downloader.
 3. Record % success, error categories, duration, source bytes, validation.
 4. Verify at least one REAL YouTube video file has BOTH audio and video,
-   and its MP3 plays end-to-end with FFprobe/FFmpeg.
+   and its MP3 plays end-to-end with FFprobe/FFmpeg. (First pilot: PASS)
 5. Test sending MP3 to a staging Telegram chat, not the production bot.
 6. Gate rollout on empirical success. No production deployment until then.
 
