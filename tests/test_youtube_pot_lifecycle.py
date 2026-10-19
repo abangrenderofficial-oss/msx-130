@@ -17,12 +17,13 @@ def test_provider_disabled_by_default(monkeypatch):
 def test_private_provider_uses_only_loopback_and_reuses_healthy_process(monkeypatch, tmp_path):
     monkeypatch.setenv("MUSIX_VIDEO_FIRST_POT_AUTO_START", "1")
     monkeypatch.setenv("MUSIX_POT_HOME", str(tmp_path))
-    entry = tmp_path / "bgutil-2.0.2/server/build/main.js"
+    entry = tmp_path / "bgutil-2.0.2/server/src/main.ts"
+    (entry.parent.parent / "node_modules").mkdir(parents=True)
     entry.parent.mkdir(parents=True)
     entry.write_text("// test fixture")
     state = {"healthy": False, "spawns": []}
     monkeypatch.setattr(lifecycle, "_healthcheck", lambda: state["healthy"])
-    monkeypatch.setattr(lifecycle, "_node_executable", lambda: Path("/fake/bin/node"))
+    monkeypatch.setattr(lifecycle, "_deno_executable", lambda: Path("/fake/bin/deno"))
 
     class FakeProcess:
         def poll(self):
@@ -50,7 +51,7 @@ def test_private_provider_uses_only_loopback_and_reuses_healthy_process(monkeypa
         assert len(state["spawns"]) == 1
         argv, kwargs = state["spawns"][0]
         assert argv[-2:] == ["--host", "127.0.0.1"]
-        assert kwargs["cwd"] == str(entry.parent.parent)
+        assert kwargs["cwd"] == str(entry.parent.parent / "node_modules")
     finally:
         lifecycle._stop()
 
