@@ -43,6 +43,7 @@ APP_SCHEMA_TABLES = frozenset(
         "music_group_settings",
         "music_group_tracks",
         "music_group_cleanup_messages",
+        "music_chat_cleanup_entries",
         "download_history",
     }
 )
@@ -327,3 +328,22 @@ class DownloadHistory(Base):
         lazy="selectin",
     )
 
+
+
+class MusicChatCleanupEntry(Base):
+    """Only verified text/link messages and tombstones for manually removed audio.
+
+    No foreign key: private chats use positive user IDs and music groups use
+    negative Telegram chat IDs. Admin monitor groups are never tracked.
+    """
+
+    __tablename__ = "music_chat_cleanup_entries"
+    __table_args__ = (
+        Index("ix_music_chat_cleanup_kind_created", "kind", "created_at"),
+    )
+
+    chat_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    message_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    chat_type = Column(Text, nullable=False)
+    kind = Column(Text, nullable=False)  # text | deleted_audio
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
