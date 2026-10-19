@@ -678,6 +678,7 @@ async def main():
             import handlers
             import middlewares
             from handlers.admin import clear_downloads_and_notify
+            from services.music_chat_cleanup import auto_clear_text_after_24h
 
             if not os.path.exists(OUTPUT_DIR):
                 os.makedirs(OUTPUT_DIR)
@@ -704,6 +705,8 @@ async def main():
                 await bot.delete_webhook(drop_pending_updates=False)
 
             crontab("0 0 * * *", func=clear_downloads_and_notify, start=True)
+            # Delete only verified text aged >=24h while Telegram permits it.
+            crontab("0 * * * *", func=auto_clear_text_after_24h, start=True)
 
             heartbeat_task = asyncio.create_task(_heartbeat_loop())
             music_cache_keepalive_task = asyncio.create_task(
