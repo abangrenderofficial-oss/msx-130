@@ -11,13 +11,13 @@ from handlers import admin, group_music, private_music
 
 def test_private_telegram_menu_is_minimal():
     assert [item["command"] for item in BOT_COMMANDS] == [
-        "start", "help", "clearall"
+        "start", "help", "clearall", "cleanduplicate"
     ]
 
 
 def test_group_telegram_menu_is_minimal():
     assert [item["command"] for item in GROUP_MUSIC_COMMANDS] == [
-        "connectmusic", "clearall"
+        "connectmusic", "clearall", "cleanduplicate"
     ]
 
 
@@ -25,7 +25,7 @@ def test_private_removed_handlers_are_not_registered():
     callbacks = {
         handler.callback.__name__ for handler in private_music.router.message.handlers
     }
-    assert callbacks == {"clear_all_private_music"}
+    assert callbacks == {"clear_all_private_music", "clean_duplicate_private_music"}
     assert not hasattr(private_music, "play_all_private_music")
     assert not hasattr(private_music, "search_private_music")
 
@@ -35,7 +35,7 @@ def test_group_removed_handlers_are_not_registered():
         handler.callback.__name__ for handler in group_music.router.message.handlers
     }
     assert callbacks == {
-        "connect_music_group", "clear_all_group_text", "connect_admin_music_monitor"
+        "connect_music_group", "clear_all_group_text", "clean_duplicate_group_music", "connect_admin_music_monitor"
     }
     for removed in (
         "show_group_playlist",
