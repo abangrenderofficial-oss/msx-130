@@ -2052,6 +2052,21 @@ async def _download_mp3(
     out_template = os.path.join(work_dir, "source.%(ext)s")
 
     if source == "youtube":
+        # Safe, opt-in video-first route. Keep legacy audio/worker fallbacks
+        # untouched unless independent video acquisition is verified.
+        if _env_truthy("MUSIX_YOUTUBE_VIDEO_FIRST_ENABLED"):
+            try:
+                from services.media.youtube_video_first import download_video_first_mp3
+
+                logging.info("Attempting isolated video-first YouTube extraction")
+                return await download_video_first_mp3(url, out_template, bitrate_kbps)
+            except Exception as exc:
+                logging.warning(
+                    "Video-first unavailable (%s); falling back to existing routes",
+                    type(exc).__name__,
+                )
+                _clear_ytdlp_outputs(out_template)
+
         # Bot Hosting may extract directly, using its local cookie file and Deno.
         # On older Render deployments leave this disabled to preserve routing.
         local_error: Exception | None = None
