@@ -34,6 +34,9 @@ class ChatTrackerMiddleware(BaseMiddleware):
         bot = data.get("bot") or getattr(event, "bot", None) or self._bot
         if isinstance(event, Message):
             await self._process_message(event, bot=bot)
+            # Register ONLY text, never media captions or audio.
+            from services.music_chat_cleanup import track_text_message
+            await track_text_message(event)
 
         request_id = str(uuid.uuid4())[:12]
         caller_user = getattr(event, "guest_bot_caller_user", None) or getattr(
