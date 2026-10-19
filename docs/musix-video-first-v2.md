@@ -84,6 +84,113 @@ Check lab status before enabling the flag on live Musix:
 5. Test sending MP3 to a staging Telegram chat, not the production bot.
 6. Gate rollout on empirical success. No production deployment until then.
 
+## Multi-node worker routing (new)
+
+This is independently implemented in Python, inspired by Desiders'
+\`NodeRouter\` and cookie-aware worker selection. The bot does **not**
+automatically borrow access or credentials from the public @yv2t_bot.
+
+**Working lab results (2026-10-19):**
+- 47/47 routing and music tests passed at the first multi-node stage.
+- Actual HTTP connection test: first worker returned an upstream auth
+  challenge, second worker delivered verified MP3; failover passed.
+- Actual YouTube link \`dQw4w9WgXcQ\` through a **real local HTTP worker**,
+  bgutil provider and Musix router returned valid 3,409,848-byte MP3 in
+  **19.07 seconds**. No Telegram production delivery tested.
+- The sample \`x-QghL7ntSg\` is still known to trigger a YouTube account/IP
+  challenge on the lab node. Additional nodes **only help if they have
+  genuinely independent, usable access contexts**.
+- None of these tests proves production success rates.
+
+### Worker deployment
+
+Run the code on EACH isolated worker deployment with a different private
+network/server context when possible:
+
+\`\`\`shell
+# On a WORKER deployment (never commit any of these secrets)
+MUSIX_VIDEO_FIRST_WORKER_TOKEN=<strong-random-secret-at-least-16-chars>
+MUSIX_VIDEO_FIRST_WORKER_BIND=127.0.0.1
+MUSIX_VIDEO_FIRST_WORKER_PORT=8099
+MUSIX_VIDEO_FIRST_WORKER_CAPACITY=2
+
+# Optional, worker-local YouTube access settings
+MUSIX_VIDEO_FIRST_POT_PROVIDER_URL=http://127.0.0.1:4416
+YTDLP_YOUTUBE_COOKIES_FILE=/path/to/worker-secret/youtube.txt
+
+python -m services.media.youtube_video_worker_api
+\`\`\`
+
+Set only worker deployment secrets, not any user's Telegram bot token. This
+repository's existing \`services/__init__.py\` currently imports config on
+worker startup; for a standalone worker without full bot env, the Python
+process currently requires a harmless placeholder \`BOT_TOKEN\` and
+\`ADMIN_ID=1\` at import time. **Do not copy the production Telegram bot
+token to a downloader worker.** Packaging into a no-bot-settings standalone
+worker is a release requirement before a public production rollout.
+
+The worker API uses \`X-Musix-Worker-Token\` for \`/v1/health\` and
+\`/v1/audio\`. Default bind is loopback. Publish it only through trusted
+HTTPS ingress or on a trusted service network with equivalent protection.
+Its \`/v1/audio\` response contains MP3, **not raw YouTube video**.
+
+### Configure bot-side routing
+
+In the Musix **bot** deployment (once production tests pass):
+
+\`\`\`shell
+MUSIX_YOUTUBE_VIDEO_FIRST_ENABLED=1
+MUSIX_WORKER_A_TOKEN=<same-secret-as-worker-A>
+MUSIX_WORKER_B_TOKEN=<same-secret-as-worker-B>
+MUSIX_VIDEO_FIRST_NODES_JSON='[
+  {"name":"worker_a","url":"https://worker-a.example","token_env":"MUSIX_WORKER_A_TOKEN"},
+  {"name":"worker_b","url":"https://worker-b.example","token_env":"MUSIX_WORKER_B_TOKEN"}
+]'
+\`\`\`
+
+These URLs are illustrative placeholders; never deploy with example URLs.
+HTTP is allowed only for loopback tests; no tokens inline inside the JSON.
+Config errors are handled as failures and the bot's legacy extraction
+fallback remains available.
+
+### What the router does
+
+1. Calls authorized \`/v1/health\` on configured nodes.
+2. Prefers an available node reporting a YouTube cookie *capability*
+   (not a guarantee of valid cookies), then lower active/capacity ratio.
+3. Requests video-first extraction on the chosen worker. The worker
+   downloads the video locally, validates its audio/video tracks with
+   FFprobe, converts it to MP3 with FFmpeg, and deletes video.
+4. Streams only MP3 bytes to Musix; Musix checks size, codec, duration
+   before its normal Telegram delivery pipeline.
+5. On upstream auth/context failure, busy or unavailable worker,
+   discards partial media and tries another healthy node. Worker-token
+   authentication failure is terminal, not silently retried.
+6. If no worker can serve the request, preserves the existing fallback.
+
+### Cookie management: intentionally cautious
+
+Cookies (when required) are provisioned as secrets **on each worker**, never
+sent from the bot and never committed into GitHub. Set
+\`YTDLP_YOUTUBE_COOKIES_FILE\` per deployment and use a protected mounted
+file. On the next request, yt-dlp reads the local file again, so an operator
+can update the secret file without editing Musix code. The node's health
+endpoint reports only whether the file exists.
+
+**This is NOT an automatic YouTube cookie creator, renewer or distributor.**
+It avoids credential copying between services but cannot remove a YouTube
+authentication challenge by itself. The Desiders repository also requires
+externally supplied cookies; its controller distributes, not renews them.
+
+### Launch requirements
+
+- Re-run the test suite; run actual downloads on **different hosting
+  egress contexts**, not simply two processes on one server/IP.
+- Verify different challenging videos, especially \`x-QghL7ntSg\`.
+- Confirm an actual staging Telegram MP3 send with metadata and cache.
+- Keep the PR in draft until those checks pass.
+- Bot live remains untouched until explicit production rollout.
+
 ## Rollback
 
 Keep \`MUSIX_YOUTUBE_VIDEO_FIRST_ENABLED\` unset or set to \`0\`; the
