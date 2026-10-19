@@ -176,3 +176,81 @@ def test_invalid_pot_provider_url_is_rejected(monkeypatch, tmp_path):
             "https://youtu.be/dQw4w9WgXcQ",
             str(tmp_path / "source.%(ext)s"), 192,
         )
+
+
+def test_video_first_guest_mweb_removes_stale_cookies_in_both_stages(monkeypatch, tmp_path):
+    monkeypatch.delenv("MUSIX_VIDEO_FIRST_POT_PROVIDER_URL", raising=False)
+    monkeypatch.delenv("MUSIX_VIDEO_FIRST_USE_COOKIES", raising=False)
+    collected = []
+    original_builder = video_first.build_ytdlp_youtube_options
+
+    def cookie_builder(**kwargs):
+        opts = original_builder(**kwargs)
+        opts["cookiefile"] = "/stale/youtube.txt"
+        collected.append(opts)
+        return opts
+
+    class Downloader:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def extract_info(self, *_args, **_kwargs):
+            return {"formats": [_v("18", abr=96)]}
+
+        def download(self, _urls):
+            raise RuntimeError("metadata and download options inspected")
+
+    monkeypatch.setattr(video_first, "build_ytdlp_youtube_options", cookie_builder)
+    with pytest.raises(video_first.VideoFirstError, match="acquisition failed"):
+        video_first._run_video_first(
+            "https://youtu.be/dQw4w9WgXcQ",
+            str(tmp_path / "source.%(ext)s"), 128, ydl_factory=Downloader,
+        )
+    assert len(collected) == 2
+    for opts in collected:
+        assert "cookiefile" not in opts
+        assert opts["extractor_args"]["youtube"]["player_client"] == ["mweb"]
+        assert opts["extractor_args"]["youtube"]["fetch_pot"] == ["always"]
+
+
+def test_worker_may_opt_into_cookie_file_when_explicit(monkeypatch, tmp_path):
+    monkeypatch.setenv("MUSIX_VIDEO_FIRST_USE_COOKIES", "1")
+    collected = []
+    builder = video_first.build_ytdlp_youtube_options
+
+    def cookie_builder(**kwargs):
+        opts = builder(**kwargs)
+        opts["cookiefile"] = "/worker-specific/youtube.txt"
+        collected.append(opts)
+        return opts
+
+    class Inspect:
+        def __init__(self, _options):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def extract_info(self, *_args, **_kwargs):
+            return {"formats": [_v("18", abr=96)]}
+
+        def download(self, _urls):
+            raise RuntimeError("no video needed")
+
+    monkeypatch.setattr(video_first, "build_ytdlp_youtube_options", cookie_builder)
+    with pytest.raises(video_first.VideoFirstError):
+        video_first._run_video_first(
+            "https://youtu.be/dQw4w9WgXcQ",
+            str(tmp_path / "source.%(ext)s"), 128, ydl_factory=Inspect,
+        )
+    assert len(collected) == 2
+    assert all(v.get("cookiefile") == "/worker-specific/youtube.txt" for v in collected)
