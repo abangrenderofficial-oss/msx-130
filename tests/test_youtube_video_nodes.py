@@ -214,3 +214,48 @@ async def test_musix_opt_in_routes_to_worker_nodes(monkeypatch, tmp_path):
         work_dir=str(tmp_path), bitrate_kbps=192,
     )
     assert output.endswith("source.mp3")
+
+
+@pytest.mark.asyncio
+async def test_corrupt_mp3_large_enough_for_ffprobe_still_fails_over(tmp_path):
+    correct_audio = _mp3(tmp_path)
+    calls = []
+
+    def request(req):
+        if req.method == "GET":
+            return httpx.Response(200, json={
+                "ok": True, "capacity": 2, "active": 0,
+                "cookie_domains": ["youtube.com"] if req.url.host == "cookie.example" else [],
+            })
+        calls.append(req.url.host)
+        if req.url.host == "cookie.example":
+            return httpx.Response(200, headers={"Content-Type": "audio/mpeg"}, content=b"X" * 2048)
+        return httpx.Response(200, headers={"Content-Type": "audio/mpeg"}, content=correct_audio)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(request)) as client:
+        output = await download_from_worker_nodes(
+            "https://youtu.be/dQw4w9WgXcQ",
+            str(tmp_path / "source.%(ext)s"), 128,
+            nodes=_nodes(), client=client,
+        )
+    assert calls == ["cookie.example", "guest.example"]
+    assert (tmp_path / "source.mp3").read_bytes() == correct_audio
+    assert output.endswith(".mp3")
+
+
+@pytest.mark.asyncio
+async def test_health_reports_worker_cookie_file_without_leaking_it(monkeypatch, tmp_path):
+    source = tmp_path / "youtube.txt"
+    source.write_text("# Netscape HTTP Cookie File\\n.youtube.com\\tTRUE\\t/\\tTRUE\\t0\\tTEST\\tsecret\\n")
+    monkeypatch.setenv("YTDLP_YOUTUBE_COOKIES_FILE", str(source))
+    app = make_app(secret="k" * 32)
+    async with TestServer(app) as server:
+        async with TestClient(server) as client:
+            response = await client.get(
+                "/v1/health", headers={"X-Musix-Worker-Token": "k" * 32},
+            )
+            assert response.status == 200
+            data = await response.json()
+            assert data["cookie_domains"] == ["youtube.com"]
+            assert str(source) not in str(data)
+            assert "secret" not in str(data)
