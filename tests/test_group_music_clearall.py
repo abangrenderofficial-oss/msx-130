@@ -73,10 +73,7 @@ async def test_clearall_deletes_tracked_text_only_and_preserves_playlist_audio(m
     assert 201 not in deleted_ids
     fake_bot.delete_message.assert_not_awaited()
 
-    fake_db.mark_music_group_links_cleared.assert_awaited_once_with(
-        message.chat.id,
-        [103],
-    )
+    fake_db.mark_music_group_links_cleared.assert_not_awaited()
     fake_db.remove_music_group_cleanup_messages.assert_awaited_once()
 
 
