@@ -2057,8 +2057,18 @@ async def _download_mp3(
         if _env_truthy("MUSIX_YOUTUBE_VIDEO_FIRST_ENABLED"):
             try:
                 from services.media.youtube_video_first import download_video_first_mp3
+                from services.media.youtube_video_nodes import configured_nodes, download_from_worker_nodes
 
-                logging.info("Attempting isolated video-first YouTube extraction")
+                # Remote nodes have independent access/cookie contexts, unlike
+                # repeated attempts from this same hosting IP. No nodes JSON
+                # means the original single-node Video-First behaviour.
+                nodes = configured_nodes()
+                if nodes:
+                    logging.info("Attempting multi-node Video-First extraction; configured_nodes=%s", len(nodes))
+                    return await download_from_worker_nodes(
+                        url, out_template, bitrate_kbps, nodes=nodes,
+                    )
+                logging.info("Attempting isolated local Video-First extraction")
                 return await download_video_first_mp3(url, out_template, bitrate_kbps)
             except Exception as exc:
                 logging.warning(
