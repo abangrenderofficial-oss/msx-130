@@ -136,8 +136,6 @@ async def _reply_tracked(
     **kwargs,
 ):
     sent = await message.reply(*args, **kwargs)
-    from services.music_chat_cleanup import track_bot_text
-    await track_bot_text(message.chat.id, getattr(sent, "message_id", None), "group")
     await _remember_cleanup_message(
         message.chat.id,
         getattr(sent, "message_id", None),
