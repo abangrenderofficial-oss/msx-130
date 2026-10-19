@@ -89,6 +89,17 @@ def _clean_youtube_title(value: object) -> str:
     return title or "Audio"
 
 
+def _music_audio_caption(title: object, *, service_name: str = "youtube") -> str:
+    """A two-line caption shared by downloaded, cached, and worker-delivered audio."""
+    raw_title = html.unescape(str(title or "Audio")).strip()
+    if service_name == "youtube":
+        raw_title = _clean_youtube_title(raw_title)
+        # Strip the known uploader credit for this track, not arbitrary artists.
+        raw_title = re.sub(r"\s+and\s+25Hzz$", "", raw_title, flags=re.IGNORECASE).strip()
+    visible_title = raw_title or "Audio"
+    return f"🎵 {html.escape(visible_title)}\n@abangrender_musicdownloaderbot"
+
+
 async def _enforce_youtube_clean_fast_message(
     *,
     chat_id: int,
@@ -106,7 +117,7 @@ async def _enforce_youtube_clean_fast_message(
     media_kwargs: dict[str, object] = {
         "media": str(file_id),
         "title": clean_title,
-        "caption": f"🎵 {html.escape(clean_title)}",
+        "caption": _music_audio_caption(clean_title),
         "parse_mode": "HTML",
     }
     if performer:
@@ -137,7 +148,7 @@ async def _enforce_youtube_clean_fast_message(
         caption_kwargs: dict[str, object] = {
             "chat_id": chat_id,
             "message_id": int(message_id),
-            "caption": f"🎵 {html.escape(clean_title)}",
+            "caption": _music_audio_caption(clean_title),
             "parse_mode": "HTML",
         }
         if business_connection_id:
@@ -251,8 +262,7 @@ def _social_audio_caption(
     title: str,
     _quality_label: str,
 ) -> str:
-    del service_name
-    return f"🎵 {html.escape(title)}"
+    return _music_audio_caption(title, service_name=service_name)
 
 
 async def _enforce_worker_title_only_caption(
@@ -766,7 +776,7 @@ async def process_music_link(
                         audio=str(remote_cached["telegram_file_id"]),
                         title=cached_title,
                         performer=cached_performer,
-                        caption=f"🎵 {html.escape(cached_title)}",
+                        caption=_music_audio_caption(cached_title),
                         bot_url=bot_url,
                         duration=cached_duration,
                         parse_mode="HTML",
@@ -916,7 +926,7 @@ async def process_music_link(
                         audio=str(shared_result["file_id"]),
                         title=shared_title,
                         performer=shared_performer,
-                        caption=f"🎵 {html.escape(shared_title)}",
+                        caption=_music_audio_caption(shared_title),
                         bot_url=bot_url,
                         duration=shared_duration,
                         parse_mode="HTML",
@@ -1372,7 +1382,7 @@ async def process_music_link(
                 audio=cached_file_id,
                 title=display_title,
                 performer=metadata.performer,
-                caption=f"🎵 {html.escape(display_title)}",
+                caption=_music_audio_caption(display_title, service_name=service_name),
                 bot_url=bot_url,
                 duration=metadata.duration,
                 parse_mode="HTML",
@@ -1443,15 +1453,12 @@ async def process_music_link(
             if total_parts > 1:
                 title = f"{display_title} — Part {index}"
                 filename_title = f"{display_title} — Part {index}"
-                caption = (
-                    f"🎵 {html.escape(display_title)}\n"
-                    f"Part {index}/{total_parts} • {result.bitrate_kbps} kbps"
-                )
+                caption = _music_audio_caption(display_title, service_name=service_name)
                 duration = None
             else:
                 title = display_title
                 filename_title = display_title
-                caption = f"🎵 {html.escape(display_title)}\n{result.bitrate_kbps} kbps"
+                caption = _music_audio_caption(display_title, service_name=service_name)
                 duration = metadata.duration
 
             stage_started = time.perf_counter()
