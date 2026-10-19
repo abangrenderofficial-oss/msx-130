@@ -191,6 +191,53 @@ externally supplied cookies; its controller distributes, not renews them.
 - Keep the PR in draft until those checks pass.
 - Bot live remains untouched until explicit production rollout.
 
+## Bot Hosting: self-hosted PO Token Provider without secrets (19 Oct 2026)
+
+**Installed and tested** bgutil v2.0.2 on the existing Musix Bot Hosting
+persistent storage at \`/home/container/.musix_pot_provider/bgutil-2.0.2\`.
+Upstream repository: Brainicism/bgutil-ytdlp-pot-provider, version 2.0.2,
+source commit \`26475e9d3665b972c4aeb83b4dbaafcf64b88438\`.
+
+Bot Hosting's nodejs-wheel contains a working Node.js executable but an
+incomplete npm CLI, so the original Node/npm installation failed.
+The official Deno method was tested and succeeded:
+\`deno install --allow-scripts=npm:canvas --frozen\`.
+
+Reproduce without any account secret:
+\`\`\`sh
+python3 scripts/setup_youtube_pot_provider.py
+\`\`\`
+
+Set environment for automatic lifecycle:
+\`\`\`text
+MUSIX_VIDEO_FIRST_POT_AUTO_START=1
+\`\`\`
+
+The bot starts its local provider automatically when a Video-First request
+arrives. Port 4416 binds to **127.0.0.1 only**. The provider gets killed when
+the bot exits and comes back automatically on the next request following a
+restart. No new Telegram bot, app, API key or account credentials.
+
+The existing configured \`MUSIX_VIDEO_FIRST_POT_PROVIDER_URL\`, if present,
+still selects an independently managed service instead.
+
+Smoke testing using the new lifecycle module **on the existing live Musix
+hosting machine**, without changing the production polling process:
+
+- Local provider auto-start: PASS.
+- \`dQw4w9WgXcQ\` video-first MP3: PASS, 3,409,848 bytes, 14.53s.
+- Provider cleanup: PASS.
+- \`x-QghL7ntSg\`: YouTube login challenge persisted. **Unresolved**.
+
+Secret Files migration details: the old Render code supported
+\`/etc/secrets/youtube.txt\` and the optional \`YTDLP_YOUTUBE_COOKIES_B64\`.
+The current Bot Hosting has one Netscape \`youtube.txt\` file. Extra secret
+filenames and contents from the former Render instance are **unknown**.
+Do not invent them or publish cookies/tokens. The Video-First default is
+guest mode (no cookies); \`MUSIX_VIDEO_FIRST_USE_COOKIES=1\` is a manual
+opt-in for the worker-local cookie file, which was tried on the challenged
+URL and also failed. Other credentials must be reconciled separately.
+
 ## Rollback
 
 Keep \`MUSIX_YOUTUBE_VIDEO_FIRST_ENABLED\` unset or set to \`0\`; the
