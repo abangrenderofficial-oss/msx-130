@@ -137,7 +137,7 @@ async def test_private_clearall_without_registry_probes_history_and_preserves_au
 
 
 @pytest.mark.asyncio
-async def test_record_private_audio_deletes_new_duplicate(monkeypatch):
+async def test_record_private_audio_keeps_new_duplicate_and_tracks_it(monkeypatch):
     existing = _track(20, file_id="file-old")
     message = SimpleNamespace(
         chat=SimpleNamespace(id=1234, type="private"),
@@ -170,12 +170,13 @@ async def test_record_private_audio_deletes_new_duplicate(monkeypatch):
         duration=200,
     )
 
-    assert stored is False
-    deleted_ids = {
-        call.args[1] for call in fake_bot.delete_message.await_args_list
-    }
-    assert deleted_ids == {21, 22}
-    add_remote.assert_not_awaited()
+    assert stored is True
+    fake_bot.delete_message.assert_not_awaited()
+    add_remote.assert_awaited_once()
+    payload = add_remote.await_args.kwargs
+    assert payload["audio_message_id"] == 22
+    assert payload["source_message_id"] == 21
+    assert payload["source_url"] == existing.source_url
 
 
 @pytest.mark.asyncio
