@@ -243,6 +243,24 @@ async def _delete_ids(bot: Any, chat_id: int, ids: Iterable[int]) -> tuple[set[i
     return deleted, failed
 
 
+async def _known_audio_message_ids(chat_id: int, chat_type: str) -> set[int]:
+    """Second safety check for text entries that may have changed to audio."""
+    if chat_type == "private":
+        from services.private_music_playlist import list_private_tracks_raw
+        tracks = await list_private_tracks_raw(chat_id)
+    else:
+        database = _database()
+        getter = getattr(database, "list_music_group_tracks_raw", None)
+        if not callable(getter):
+            raise RuntimeError("Audio registry unavailable; skipping automatic cleanup")
+        tracks = await getter(chat_id)
+    return {
+        int(row.audio_message_id)
+        for row in tracks
+        if getattr(row, "audio_message_id", None) is not None
+    }
+
+
 async def auto_clear_text_after_24h() -> None:
     """Hourly check: process text aged >=24h while Telegram's 48h limit allows.
 
@@ -279,7 +297,11 @@ async def auto_clear_text_after_24h() -> None:
                 continue
             if chat_type not in {"private", "group"}:
                 continue
-            deleted, failed = await _delete_ids(_bot(), chat_id, msg_ids)
+            known_audio = await _known_audio_message_ids(chat_id, chat_type)
+            safe_text_ids = [value for value in msg_ids if value not in known_audio]
+            if not safe_text_ids:
+                continue
+            deleted, failed = await _delete_ids(_bot(), chat_id, safe_text_ids)
             if deleted:
                 await remove_text_entries(chat_id, deleted)
             logging.info(
