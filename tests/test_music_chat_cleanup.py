@@ -15,7 +15,7 @@ def _track(message_id, *, source="https://youtu.be/Ftffph3fVEs", title="Song"):
         source_url=source,
         title=title,
         performer="Artist",
-        telegram_file_id="telegram-same-file",
+        telegram_file_id="file:" + source,
     )
 
 
