@@ -235,7 +235,10 @@ class MusicGroupRepositoryMixin:
         async with self.SessionLocal() as session:
             result = await session.execute(
                 select(MusicGroupCleanupMessage.message_id)
-                .where(MusicGroupCleanupMessage.group_id == int(group_id))
+                .where(
+                    MusicGroupCleanupMessage.group_id == int(group_id),
+                    MusicGroupCleanupMessage.kind.in_(("bot_text", "command")),
+                )
                 .order_by(MusicGroupCleanupMessage.message_id.asc())
             )
             return [int(value) for value in result.scalars().all()]
