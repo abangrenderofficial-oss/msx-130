@@ -349,7 +349,7 @@ async def clear_all_group_text(message: types.Message) -> None:
     # Never sweep uninspected Telegram message-ID ranges. Only known text,
     # link and command message IDs are safe to delete. Protect all audio IDs.
     text_ids = await get_text_message_ids(message.chat.id)
-    target_ids = (text_ids | tracked_ids | source_ids | {current_message_id}) - audio_message_ids
+    target_ids = (text_ids | tracked_ids | {current_message_id}) - audio_message_ids
     sweep_floor = min(target_ids) if target_ids else current_message_id
 
     deleted, failed = await _delete_group_messages(
