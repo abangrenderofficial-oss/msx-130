@@ -147,6 +147,10 @@ async def test_daily_auto_cleanup_never_acts_on_admin_monitor_group(monkeypatch)
         "_database",
         lambda: SimpleNamespace(SessionLocal=lambda: Session()),
     )
+    monkeypatch.setattr(
+        music_chat_cleanup, "_known_audio_message_ids",
+        AsyncMock(return_value=set()),
+    )
     checker = AsyncMock(return_value=False)
     monkeypatch.setattr(music_chat_cleanup, "_allowed_group", checker)
     deletions = AsyncMock(return_value=({92}, set()))
@@ -191,3 +195,26 @@ def test_safe_cleanup_table_can_be_created_without_group_foreign_key():
     assert "music_chat_cleanup_entries" in inspect(engine).get_table_names()
     assert inspect(engine).get_foreign_keys("music_chat_cleanup_entries") == []
     engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_auto_cleanup_never_deletes_a_registered_audio_even_if_tracked_as_text(monkeypatch):
+    class Session:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_): return None
+        async def execute(self, _statement):
+            return SimpleNamespace(all=lambda: [(42, 92, "private"), (42, 93, "private")])
+    monkeypatch.setattr(
+        music_chat_cleanup, "_database",
+        lambda: SimpleNamespace(SessionLocal=lambda: Session()),
+    )
+    monkeypatch.setattr(
+        music_chat_cleanup, "_known_audio_message_ids",
+        AsyncMock(return_value={92}),
+    )
+    delete_ids = AsyncMock(return_value=({93}, set()))
+    monkeypatch.setattr(music_chat_cleanup, "_delete_ids", delete_ids)
+    monkeypatch.setattr(music_chat_cleanup, "remove_text_entries", AsyncMock())
+    await music_chat_cleanup.auto_clear_text_after_24h()
+    delete_ids.assert_awaited_once()
+    assert delete_ids.await_args.args[2] == [93]
