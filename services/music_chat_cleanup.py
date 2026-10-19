@@ -103,6 +103,23 @@ async def track_text_message(message: Any) -> None:
         logging.warning("Text tracking failed: chat=%s error=%s", chat.id, exc)
 
 
+async def track_outbound_bot_text(make_request, bot, method):
+    """Session middleware: catches bot replies/status messages, not audio captions."""
+    from aiogram.methods import SendMessage
+
+    result = await make_request(bot, method)
+    if isinstance(method, SendMessage):
+        chat = getattr(result, "chat", None)
+        message_id = getattr(result, "message_id", None)
+        chat_type = _chat_type(chat)
+        if chat is not None and chat_type is not None and message_id is not None:
+            try:
+                await track_bot_text(int(chat.id), int(message_id), chat_type)
+            except Exception as exc:
+                logging.warning("Outbound text tracking failed: %s", exc)
+    return result
+
+
 async def track_bot_text(chat_id: int, message_id: int | None, chat_type: str) -> None:
     if message_id is None or chat_type not in {"private", "group"}:
         return
