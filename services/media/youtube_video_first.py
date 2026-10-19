@@ -122,6 +122,9 @@ def _run_video_first(
         raise VideoFirstError("Audio output already exists; refusing to overwrite")
 
     pot_server = (os.getenv("MUSIX_VIDEO_FIRST_POT_PROVIDER_URL") or "").strip()
+    if not pot_server:
+        from services.media.youtube_pot_lifecycle import ensure_local_provider
+        pot_server = ensure_local_provider() or ""
     # Same yt-dlp provider interface used by Desiders. The provider server
     # must be operated independently; this flag never starts a remote service.
     # Real Bot Hosting test (2026-10-19): the legacy web_creator
