@@ -1,12 +1,9 @@
-"""Install pinned, open-source YouTube PO-token server (no credentials).
+"""Install pinned bgutil PO Token Provider on Bot Hosting, without secrets.
 
-Run explicitly ONCE on Bot Hosting, then it remains on the persistent volume:
+One-time command:
     python3 scripts/setup_youtube_pot_provider.py
-Re-run safely after image or volume maintenance. This does not restart Musix.
-
-Only installs the provider itself. The bot starts it lazily and binds it to
-127.0.0.1, never a public server. Uses pinned upstream tag + commit to avoid
-silently changing third-party code on each deployment.
+Idempotent; files persist outside the Git checkout. The bot starts its own
+private Deno process lazily on demand. No npm, public port or bot token needed.
 """
 from __future__ import annotations
 
@@ -22,24 +19,20 @@ SOURCE = "https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git"
 DEFAULT_HOME = "/home/container/.musix_pot_provider"
 
 
-def _node_tools() -> pathlib.Path:
-    candidates = []
-    for prefix in (
-        pathlib.Path("/home/container/.local"),
-        pathlib.Path(sys.prefix),
-    ):
-        candidates += list(prefix.glob("lib/python*/site-packages/nodejs_wheel/bin"))
-    for path in candidates:
-        if (path / "node").is_file() and (path / "npm").is_file():
-            return path
-    raise RuntimeError("Bundled nodejs-wheel bin directory missing")
+def _deno_path() -> str:
+    bundled = pathlib.Path("/home/container/bin/deno")
+    if bundled.is_file():
+        return str(bundled)
+    executable = shutil.which("deno")
+    if executable:
+        return executable
+    raise RuntimeError("Deno is unavailable on this deployment")
 
 
-def _run(command: list[str], *, cwd: pathlib.Path | None = None, env=None) -> None:
+def _run(command: list[str], *, cwd: pathlib.Path | None = None) -> None:
     subprocess.run(
         command,
         cwd=str(cwd) if cwd else None,
-        env=env,
         check=True,
         timeout=180,
         stdout=subprocess.DEVNULL,
@@ -50,35 +43,36 @@ def install() -> pathlib.Path:
     home = pathlib.Path(os.getenv("MUSIX_POT_HOME", DEFAULT_HOME)).resolve()
     home.mkdir(parents=True, exist_ok=True)
     final = home / f"bgutil-{VERSION}"
-    ready = final / "server/build/main.js"
-    if ready.is_file() and (final / ".musix_verified_commit").is_file():
-        if (final / ".musix_verified_commit").read_text().strip() == PINNED_COMMIT:
-            return ready
+    entry = final / "server/src/main.ts"
+    marker = final / ".musix_verified_commit"
+    if entry.is_file() and marker.is_file() and (final / "server/node_modules").is_dir():
+        if marker.read_text().strip() == PINNED_COMMIT:
+            return entry
 
-    node_bin = _node_tools()
-    env = dict(os.environ)
-    env["PATH"] = str(node_bin) + os.pathsep + env.get("PATH", "")
     stage = home / f".bgutil-{VERSION}-install"
     if stage.exists():
         shutil.rmtree(stage)
     try:
-        _run(["git", "clone", "--depth", "1", "--branch", VERSION, "--single-branch", SOURCE, str(stage)])
+        _run(["git", "-c", "advice.detachedHead=false", "clone", "--quiet", "--depth", "1",
+              "--branch", VERSION, "--single-branch", SOURCE, str(stage)])
         sha = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=stage, text=True,
         ).strip()
         if sha != PINNED_COMMIT:
-            raise RuntimeError("Upstream tag does not match pinned provider commit")
+            raise RuntimeError("Upstream tag differs from pinned source commit")
 
-        _run(["npm", "ci", "--no-audit", "--no-fund"], cwd=stage / "server", env=env)
-        _run(["npx", "--no-install", "tsc"], cwd=stage / "server", env=env)
-        if not (stage / "server/build/main.js").is_file():
-            raise RuntimeError("PO-token server build missing main.js")
+        _run([_deno_path(), "install", "--allow-scripts=npm:canvas", "--frozen"],
+             cwd=stage / "server")
+        if not (stage / "server/src/main.ts").is_file():
+            raise RuntimeError("PO-token server source is incomplete")
+        if not (stage / "server/node_modules").is_dir():
+            raise RuntimeError("Provider dependencies not installed")
         (stage / ".musix_verified_commit").write_text(PINNED_COMMIT + "\n")
 
         if final.exists():
             shutil.rmtree(final)
         stage.rename(final)
-        return final / "server/build/main.js"
+        return final / "server/src/main.ts"
     finally:
         if stage.exists():
             shutil.rmtree(stage)
@@ -89,6 +83,5 @@ if __name__ == "__main__":
         result = install()
         print("musix_pot_setup=ready version=" + VERSION + " file=" + str(result))
     except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
-        # Exception categories only; do not leak shell commands or credentials.
         print("musix_pot_setup=failed type=" + type(exc).__name__, file=sys.stderr)
         raise SystemExit(1) from None
