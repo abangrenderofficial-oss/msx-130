@@ -86,3 +86,31 @@ def test_real_musix_bot_registers_standalone_audio_middleware():
     from services.media.audio_standalone import send_audio_standalone
 
     assert send_audio_standalone in app.session.middleware
+
+
+@pytest.mark.asyncio
+async def test_actual_aiogram_bot_pipeline_strips_reply_before_telegram_transport():
+    app = create_app(
+        bot_token="123456:unit-test-key",
+        database_factory=lambda: object(),
+    )
+    underlying_send = AsyncMock(return_value=SimpleNamespace(
+        message_id=105,
+        chat=SimpleNamespace(id=-10042, type="supergroup"),
+    ))
+    app.session.make_request = underlying_send
+    result = await app.bot(
+        SendAudio(
+            chat_id=-10042,
+            audio="file-id",
+            caption="🎵 Song\n@abangrender_musicdownloaderbot",
+            message_thread_id=77,
+            reply_parameters=ReplyParameters(message_id=99),
+        )
+    )
+    sent_method = underlying_send.await_args.args[1]
+    assert result.message_id == 105
+    assert sent_method.reply_parameters is None
+    assert sent_method.reply_to_message_id is None
+    assert sent_method.message_thread_id == 77
+    assert sent_method.caption.endswith("@abangrender_musicdownloaderbot")
