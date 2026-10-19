@@ -124,21 +124,34 @@ def _run_video_first(
     pot_server = (os.getenv("MUSIX_VIDEO_FIRST_POT_PROVIDER_URL") or "").strip()
     # Same yt-dlp provider interface used by Desiders. The provider server
     # must be operated independently; this flag never starts a remote service.
-    extractor_args: dict[str, dict[str, list[str]]] = {}
+    # Real Bot Hosting test (2026-10-19): the legacy web_creator
+    # configuration hit YouTube's login challenge. Guest mweb with automatic
+    # PO token succeeded without account cookies. Treat cookies as an optional
+    # per-worker fallback, never a mandatory credential or automatic renewal.
+    extractor_args: dict[str, dict[str, list[str]]] = {
+        "youtube": {"player_client": ["mweb"], "fetch_pot": ["always"]},
+    }
     if pot_server:
         from urllib.parse import urlsplit
 
         parsed = urlsplit(pot_server)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise VideoFirstError("Invalid self-hosted PO Token provider URL")
-        extractor_args = {
-            "youtubepot-bgutilhttp": {"base_url": [pot_server]},
-            "youtube": {"player_client": ["mweb"], "fetch_pot": ["always"]},
-        }
+        extractor_args["youtubepot-bgutilhttp"] = {"base_url": [pot_server]}
+
+    use_cookies = os.getenv("MUSIX_VIDEO_FIRST_USE_COOKIES", "0").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+    def prepare_youtube_options(**kwargs: Any) -> dict[str, Any]:
+        options = build_ytdlp_youtube_options(extractor_args=extractor_args, **kwargs)
+        if not use_cookies:
+            options.pop("cookiefile", None)
+            options.pop("cookiesfrombrowser", None)
+        return options
 
     try:
-        options = build_ytdlp_youtube_options(
-            extractor_args=extractor_args,
+        options = prepare_youtube_options(
             skip_download=True, noplaylist=True, ignore_no_formats_error=False,
             socket_timeout=12, retries=1, fragment_retries=1,
         )
@@ -148,8 +161,7 @@ def _run_video_first(
             raise VideoFirstError("YouTube metadata unavailable")
         fmt = _media_formats(metadata, max_height=max_height)
 
-        options = build_ytdlp_youtube_options(
-            extractor_args=extractor_args,
+        options = prepare_youtube_options(
             format=fmt,
             outtmpl=f"{video_base}.%(ext)s",
             merge_output_format="mkv",
