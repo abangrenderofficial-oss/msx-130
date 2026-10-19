@@ -35,13 +35,15 @@ def _healthcheck() -> bool:
         return False
 
 
-def _node_executable() -> pathlib.Path:
-    for prefix in (pathlib.Path("/home/container/.local"), pathlib.Path(sys.prefix)):
-        for root in prefix.glob("lib/python*/site-packages/nodejs_wheel/bin"):
-            candidate = root / "node"
-            if candidate.is_file():
-                return candidate
-    raise RuntimeError("Bundled Node.js executable not installed")
+def _deno_executable() -> pathlib.Path:
+    bundled = pathlib.Path("/home/container/bin/deno")
+    if bundled.is_file():
+        return bundled
+    import shutil
+    found = shutil.which("deno")
+    if found:
+        return pathlib.Path(found)
+    raise RuntimeError("Bundled Deno executable not installed")
 
 
 def _stop() -> None:
@@ -72,8 +74,9 @@ def ensure_local_provider() -> str | None:
 
         home = pathlib.Path(os.getenv("MUSIX_POT_HOME", HOME_DEFAULT))
         server = home / "bgutil-2.0.2/server"
-        entry = server / "build/main.js"
-        if not entry.is_file():
+        entry = server / "src/main.ts"
+        modules = server / "node_modules"
+        if not entry.is_file() or not modules.is_dir():
             raise RuntimeError("PO Token server not installed; run setup script")
         if _child is not None:
             if _child.poll() is None:
@@ -85,9 +88,10 @@ def ensure_local_provider() -> str | None:
             _child = None
 
         _child = subprocess.Popen(
-            [str(_node_executable()), str(entry), "--port", "4416",
-             "--host", "127.0.0.1"],
-            cwd=str(server),
+            [str(_deno_executable()), "run", "--allow-env", "--allow-net",
+             "--allow-ffi=.", "--allow-read=.", "../src/main.ts",
+             "--port", "4416", "--host", "127.0.0.1"],
+            cwd=str(modules),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
