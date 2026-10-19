@@ -113,6 +113,10 @@ def create_app(
     # remove status/error replies without touching any audio caption.
     from services.music_chat_cleanup import track_outbound_bot_text
     session.middleware.register(track_outbound_bot_text)
+    # Audio is always standalone: /clearall may later delete the source link.
+    # Only SendAudio reply references are stripped; thread/business context stays.
+    from services.media.audio_standalone import send_audio_standalone
+    session.middleware.register(send_audio_standalone)
     default = DefaultBotProperties(parse_mode=ParseMode.HTML)
     bot = Bot(token=bot_token, default=default, session=session)
     dispatcher = Dispatcher()
