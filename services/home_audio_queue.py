@@ -31,6 +31,10 @@ def timeout_seconds() -> int:
 def now() -> datetime:
     return datetime.now(timezone.utc)
 
+def _aware(value: datetime) -> datetime:
+    """SQLite returns naive timestamps despite timezone=True; PostgreSQL does not."""
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
 
 def _valid_worker_id(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_-]{1,48}", value))
@@ -118,7 +122,7 @@ async def claim(db, worker_id: str) -> dict | None:
             item.worker_id = worker_id
             item.claim_token = token
             item.started_at = current
-            item.lease_expires_at = min(item.expires_at, current + timedelta(seconds=timeout_seconds()))
+            item.lease_expires_at = min(_aware(item.expires_at), current + timedelta(seconds=timeout_seconds()))
             return {
                 "job_id": item.id,
                 "video_id": item.video_id,
@@ -144,7 +148,7 @@ async def complete(
             if (item is None or item.status != "processing"
                     or item.worker_id != worker_id
                     or not secrets.compare_digest(item.claim_token or "", claim_token)
-                    or item.expires_at <= current):
+                    or _aware(item.expires_at) <= current):
                 return None
             item.status = "done" if success else "failed"
             item.file_id = file_id[:512] if success else None
