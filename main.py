@@ -650,6 +650,9 @@ async def _start_musix_admin_web():
     from admin.youtube_session.dashboard_server import create_app as create_dashboard
 
     application = create_dashboard()
+    # Optional pull-only home worker API; does not affect routes if disabled.
+    from services.home_audio_api import install_routes as install_home_worker_routes
+    install_home_worker_routes(application, db)
     runner = web.AppRunner(application, access_log=None)
     await runner.setup()
     port = int(os.getenv("SERVER_PORT") or os.getenv("PORT") or "8080")
