@@ -44,6 +44,7 @@ def upgrade():
             "home_audio_heartbeats",
             sa.Column("worker_id", sa.Text(), primary_key=True),
             sa.Column("last_seen_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column("ready", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         )
 
 
