@@ -6,6 +6,7 @@ Default: no YouTube cookies. Main bot falls back if this worker fails.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 import os
 import re
 import shutil
@@ -157,12 +158,52 @@ def upload_staging(client: httpx.Client, file_path: Path, title: str, performer:
     return body["result"]["audio"]["file_id"]
 
 
+def process_job(public_url: str, authorization: dict[str, str], worker_id: str, job: dict) -> str:
+    """One job, isolated files and HTTP client; return failure category for cooldown."""
+    started = time.monotonic()
+    outcome = {
+        "worker_id": worker_id, "job_id": job["job_id"],
+        "claim_token": job["claim_token"], "success": False,
+        "failure_reason": "download_error",
+    }
+    with httpx.Client(timeout=httpx.Timeout(15.0, connect=6.0), follow_redirects=False) as client:
+        try:
+            with tempfile.TemporaryDirectory(prefix="musix-home-") as folder:
+                path, title, performer, duration = extract_audio(job["url"], Path(folder))
+                file_id = upload_staging(client, path, title, performer, duration)
+                outcome.update(
+                    success=True, failure_reason="", file_id=file_id,
+                    title=title, performer=performer, duration=duration,
+                )
+        except Exception as exc:
+            outcome["failure_reason"] = classify(exc)
+            logging.warning(
+                "Job failed: video_id=%s reason=%s seconds=%.1f",
+                job.get("video_id"), outcome["failure_reason"], time.monotonic()-started,
+            )
+        else:
+            logging.info(
+                "Job success: video_id=%s seconds=%.1f", job.get("video_id"),
+                time.monotonic() - started,
+            )
+        try:
+            response = client.post(
+                public_url + "/api/home-worker/complete",
+                headers=authorization, json=outcome,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError:
+            logging.warning("Job completion rejected or unavailable; main bot will fall back")
+    return str(outcome["failure_reason"])
+
+
 def main() -> None:
     public_url = settings()
     worker_id = os.getenv("HOME_WORKER_ID", "windows-home")
     poll_interval = max(3.0, float(os.getenv("HOME_WORKER_POLL_SECONDS", "6")))
     min_delay = max(5.0, float(os.getenv("HOME_MIN_YOUTUBE_DELAY_SECONDS", "8")))
     max_per_hour = max(1, int(os.getenv("HOME_MAX_JOBS_PER_HOUR", "30")))
+    concurrency = max(1, min(4, int(os.getenv("HOME_MAX_CONCURRENT_JOBS", "1"))))
     cooldown_seconds = max(60, int(os.getenv("HOME_BOT_CHECK_COOLDOWN_SECONDS", "600")))
     authorization = {"Authorization": "Bearer " + os.environ["HOME_WORKER_API_TOKEN"]}
     recent: deque[float] = deque()
@@ -170,10 +211,29 @@ def main() -> None:
     last_heartbeat = 0.0
     last_ready = None
     cooldown_until = 0.0
-    logging.info("MusiX home worker started (no cookies unless COOKIES_PATH is set)")
-    with httpx.Client(timeout=httpx.Timeout(15.0, connect=6.0), follow_redirects=False) as client:
+    logging.info(
+        "MusiX home worker started: concurrency=%s (no cookies unless COOKIES_PATH set)",
+        concurrency,
+    )
+    # Single process owns the global YouTube request rate limiter. Worker
+    # threads only execute claimed jobs; the main thread polls and heartbeats.
+    with ThreadPoolExecutor(max_workers=concurrency) as pool, httpx.Client(
+        timeout=httpx.Timeout(15.0, connect=6.0), follow_redirects=False
+    ) as client:
+        active = set()
         while True:
             current = time.monotonic()
+            for future in tuple(active):
+                if not future.done():
+                    continue
+                active.remove(future)
+                try:
+                    reason = future.result()
+                except Exception:
+                    logging.exception("Home job task failed unexpectedly")
+                    reason = "download_error"
+                if reason in {"bot_check", "rate_limit"}:
+                    cooldown_until = max(cooldown_until, time.monotonic() + cooldown_seconds)
             while recent and recent[0] < current - 3600:
                 recent.popleft()
             ready = current >= cooldown_until and len(recent) < max_per_hour
@@ -188,7 +248,7 @@ def main() -> None:
                     last_ready = ready
                 except (httpx.HTTPError, ValueError):
                     logging.warning("Heartbeat request failed; will retry")
-            if not ready:
+            if not ready or len(active) >= concurrency:
                 time.sleep(poll_interval)
                 continue
             try:
@@ -208,57 +268,11 @@ def main() -> None:
             delay = last_request + min_delay - time.monotonic()
             if delay > 0:
                 time.sleep(delay)
-            started = time.monotonic()
-            last_request = started
-            recent.append(started)
-            outcome = {
-                "worker_id": worker_id,
-                "job_id": job["job_id"],
-                "claim_token": job["claim_token"],
-                "success": False,
-                "failure_reason": "download_error",
-            }
-            try:
-                with tempfile.TemporaryDirectory(prefix="musix-home-") as folder:
-                    path, title, performer, duration = extract_audio(job["url"], Path(folder))
-                    file_id = upload_staging(client, path, title, performer, duration)
-                    outcome.update(
-                        success=True, failure_reason="", file_id=file_id,
-                        title=title, performer=performer, duration=duration,
-                    )
-            except Exception as exc:
-                outcome["failure_reason"] = classify(exc)
-                logging.warning(
-                    "Job failed: video_id=%s reason=%s seconds=%.1f",
-                    job.get("video_id"), outcome["failure_reason"], time.monotonic()-started,
-                )
-                if outcome["failure_reason"] in {"bot_check", "rate_limit"}:
-                    cooldown_until = time.monotonic() + cooldown_seconds
-                    try:
-                        client.post(
-                            public_url + "/api/home-worker/heartbeat",
-                            headers=authorization,
-                            json={"worker_id": worker_id, "ready": False},
-                            timeout=6,
-                        ).raise_for_status()
-                        last_heartbeat = time.monotonic()
-                        last_ready = False
-                    except httpx.HTTPError:
-                        pass
-            else:
-                logging.info(
-                    "Job success: video_id=%s seconds=%.1f", job.get("video_id"),
-                    time.monotonic() - started,
-                )
-            try:
-                response = client.post(
-                    public_url + "/api/home-worker/complete",
-                    headers=authorization, json=outcome,
-                )
-                response.raise_for_status()
-            except httpx.HTTPError:
-                logging.warning("Job completion rejected or unavailable; main bot will fall back")
-            time.sleep(poll_interval)
+            last_request = time.monotonic()
+            recent.append(last_request)
+            active.add(pool.submit(process_job, public_url, authorization, worker_id, job))
+            # Poll again only after a short pause to avoid spinning.
+            time.sleep(0.1)
 
 
 if __name__ == "__main__":
