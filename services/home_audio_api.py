@@ -45,7 +45,7 @@ def install_routes(app: web.Application, db) -> None:
     async def heartbeat(request):
         data = await payload(request)
         try:
-            await queue.record_heartbeat(db, str(data.get("worker_id", "")))
+            await queue.record_heartbeat(db, str(data.get("worker_id", "")), ready=(data.get("ready") is True))
         except ValueError:
             raise web.HTTPBadRequest(text="Invalid worker")
         return web.json_response({"ok": True})
