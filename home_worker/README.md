@@ -68,7 +68,9 @@ PostgreSQL, secure HTTPS public website, private staging chat, valid
 ## Rate limits and recovery
 
 \`HOME_MIN_YOUTUBE_DELAY_SECONDS\` (8), \`HOME_MAX_JOBS_PER_HOUR\` (30),
-one active job per worker process (run one process), no cookies by default.
+`HOME_MAX_CONCURRENT_JOBS` (1 by default, 1–4 per process), no cookies by default.
+Use **one** worker process on the same home IP so the delay and hourly limit
+remain global to that PC.
 After a YouTube bot-check/429 the worker reports the error, enters a
 configurable cooldown and heartbeats \`ready=false\`, so new user requests
 skip the home queue during cooldown. Jobs are claimed with PostgreSQL
