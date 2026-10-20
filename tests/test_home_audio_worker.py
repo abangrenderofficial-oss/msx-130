@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import pytest_asyncio
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -17,7 +18,7 @@ from services.home_audio_api import install_routes
 from services.storage.models import Base
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def db(tmp_path):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'home_worker_test.db'}")
     async with engine.begin() as conn:
