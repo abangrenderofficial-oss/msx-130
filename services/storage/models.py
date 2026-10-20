@@ -44,6 +44,8 @@ APP_SCHEMA_TABLES = frozenset(
         "music_group_tracks",
         "music_group_cleanup_messages",
         "music_chat_cleanup_entries",
+        "home_audio_jobs",
+        "home_audio_heartbeats",
         "download_history",
     }
 )
@@ -68,6 +70,41 @@ class DownloadedFile(Base):
     file_id = Column(Text, nullable=False)
     date_added = Column(TIMESTAMP(timezone=True), server_default=func.now())
     file_type = Column(Text, nullable=True)
+
+
+
+class HomeAudioJob(Base):
+    """Optional home-worker request; also the durable trial audit log."""
+
+    __tablename__ = "home_audio_jobs"
+    __table_args__ = (
+        Index("ix_home_audio_jobs_pending", "status", "created_at"),
+        Index("ix_home_audio_jobs_stats", "created_at", "status"),
+    )
+    id = Column(Text, primary_key=True)
+    video_id = Column(Text, nullable=False)
+    source_url = Column(Text, nullable=False)
+    chat_id = Column(BigInteger, nullable=False)
+    request_message_id = Column(BigInteger, nullable=False)
+    status = Column(Text, nullable=False, server_default=sa.text("'pending'"))
+    worker_id = Column(Text)
+    claim_token = Column(Text)
+    file_id = Column(Text)
+    title = Column(Text)
+    performer = Column(Text)
+    duration_seconds = Column(sa.Float)
+    failure_reason = Column(Text)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    started_at = Column(TIMESTAMP(timezone=True))
+    lease_expires_at = Column(TIMESTAMP(timezone=True))
+    finished_at = Column(TIMESTAMP(timezone=True))
+
+
+class HomeAudioHeartbeat(Base):
+    __tablename__ = "home_audio_heartbeats"
+    worker_id = Column(Text, primary_key=True)
+    last_seen_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
 class User(Base):
