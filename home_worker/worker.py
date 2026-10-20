@@ -91,6 +91,13 @@ def extract_audio(url: str, folder: Path):
             return "file_size_limit: source too large"
         return None
     opts["match_filter"] = guard
+    source_limit_bytes = int(os.getenv("HOME_MAX_SOURCE_MB", "120")) * 1024 * 1024
+    def cap_source_bytes(data):
+        if data.get("status") == "downloading":
+            received = data.get("downloaded_bytes") or 0
+            if int(received) > source_limit_bytes:
+                raise DownloadError("file_size_limit: source exceeds maximum")
+    opts["progress_hooks"] = [cap_source_bytes]
 
     # Cookies OFF by default. Do not read youtube.txt, Brave or profile data.
     cookie_path = os.getenv("COOKIES_PATH", "").strip()
@@ -161,6 +168,7 @@ def main() -> None:
     recent: deque[float] = deque()
     last_request = 0.0
     last_heartbeat = 0.0
+    last_ready = None
     cooldown_until = 0.0
     logging.info("MusiX home worker started (no cookies unless COOKIES_PATH is set)")
     with httpx.Client(timeout=httpx.Timeout(15.0, connect=6.0), follow_redirects=False) as client:
@@ -169,7 +177,7 @@ def main() -> None:
             while recent and recent[0] < current - 3600:
                 recent.popleft()
             ready = current >= cooldown_until and len(recent) < max_per_hour
-            if current - last_heartbeat >= 60 or not last_heartbeat:
+            if current - last_heartbeat >= 60 or not last_heartbeat or ready != last_ready:
                 try:
                     response = client.post(
                         public_url + "/api/home-worker/heartbeat",
@@ -177,6 +185,7 @@ def main() -> None:
                     )
                     response.raise_for_status()
                     last_heartbeat = current
+                    last_ready = ready
                 except (httpx.HTTPError, ValueError):
                     logging.warning("Heartbeat request failed; will retry")
             if not ready:
@@ -217,7 +226,7 @@ def main() -> None:
                         success=True, failure_reason="", file_id=file_id,
                         title=title, performer=performer, duration=duration,
                     )
-            except (DownloadError, Exception) as exc:
+            except Exception as exc:
                 outcome["failure_reason"] = classify(exc)
                 logging.warning(
                     "Job failed: video_id=%s reason=%s seconds=%.1f",
@@ -233,6 +242,7 @@ def main() -> None:
                             timeout=6,
                         ).raise_for_status()
                         last_heartbeat = time.monotonic()
+                        last_ready = False
                     except httpx.HTTPError:
                         pass
             else:
