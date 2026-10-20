@@ -43,6 +43,7 @@ from services.logger import logger as logging, summarize_url_for_log
 from services.admin_music_monitor import mirror_private_audio_to_admin_group
 from services.private_music_playlist import record_private_audio
 from services.media.audio_metadata import build_audio_filename, prepare_mp3_metadata
+from services import home_audio_queue as home_audio_queue
 from services.media.delivery import send_audio_with_thumbnail
 from services.storage.music_cache import (
     get_cached_audio,
@@ -824,6 +825,62 @@ async def process_music_link(
                         user_settings.get("delete_message"),
                     )
                     return
+
+        # HOME WORKER EXPERIMENT (opt-in only). All cache-hit paths above stay
+        # untouched. An old-format local cache hit also bypasses this new path.
+        # Timeout/offline/failure always continues to the ORIGINAL worker code.
+        if (
+            service_name == "youtube"
+            and business_id is None
+            and home_audio_queue.configured()
+            and hasattr(db, "SessionLocal")
+        ):
+            try:
+                old_cached_id = await db.get_file_id(build_music_cache_key(source_url))
+                if not old_cached_id and await home_audio_queue.is_online(db):
+                    video_id = youtube_video_id(source_url)
+                    if video_id:
+                        home_job_id = await home_audio_queue.enqueue(
+                            db,
+                            url=source_url,
+                            video_id=video_id,
+                            chat_id=message.chat.id,
+                            message_id=message.message_id,
+                        )
+                        if status_message:
+                            await safe_edit_text(
+                                status_message,
+                                "🎧 Lagu dalam queue home worker. "
+                                "Audio akan dihantar sekejap lagi...",
+                            )
+                        home_audio = await home_audio_queue.wait_for_result(db, home_job_id)
+                        if home_audio:
+                            home_title = _clean_youtube_title(
+                                home_audio.get("title") or "Audio"
+                            )
+                            if status_message:
+                                await safe_edit_text(status_message, bm.uploading_status())
+                            await send_audio_with_thumbnail(
+                                audio_sender,
+                                audio=home_audio["file_id"],
+                                title=home_title,
+                                performer=str(home_audio.get("performer") or "YouTube"),
+                                caption=_music_audio_caption(home_title),
+                                bot_url=bot_url,
+                                duration=home_audio.get("duration"),
+                                parse_mode="HTML",
+                            )
+                            request_lease.mark_success()
+                            await maybe_delete_user_message(
+                                message, user_settings.get("delete_message")
+                            )
+                            return
+            except Exception as home_error:
+                logging.warning(
+                    "Home worker unavailable or delivery failed; "
+                    "continuing original YouTube pipeline: error_type=%s",
+                    type(home_error).__name__,
+                )
 
         if service_name == "youtube" and _youtube_fast_worker_enabled():
             video_id, shared_fast_future, is_fast_leader = (
