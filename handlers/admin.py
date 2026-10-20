@@ -646,6 +646,36 @@ async def total_musix_unique_users(message: types.Message) -> None:
     )
 
 
+@router.message(Command("workerstats"))
+async def show_home_worker_stats(message: types.Message) -> None:
+    """Owner-only home worker trial metrics (not a public bot command)."""
+    actor_id = getattr(getattr(message, "from_user", None), "id", None)
+    if not is_admin_music_owner(actor_id):
+        return
+    from services import home_audio_queue as home_queue
+    if not home_queue.enabled() or not hasattr(db, "SessionLocal"):
+        await message.answer("🏠 Home worker tidak diaktifkan.")
+        return
+    try:
+        values = await home_queue.stats(db)
+    except Exception:
+        logging.exception("Home worker stats unavailable")
+        await message.answer("❌ Statistik home worker belum tersedia.")
+        return
+    time_text = values.get("last_heartbeat") or "Belum ada"
+    status = "Online" if values["online"] else "Offline / cooldown"
+    await message.answer(
+        "🏠 <b>MusiX Home Worker</b>\n"
+        f"Status: <b>{status}</b>\n"
+        f"Heartbeat UTC: <code>{time_text}</code>\n"
+        f"24 jam: <b>{values['24h']['success']}/{values['24h']['total']}</b>"
+        f" ({values['24h']['rate']}%)\n"
+        f"7 hari: <b>{values['7d']['success']}/{values['7d']['total']}</b>"
+        f" ({values['7d']['rate']}%)",
+        parse_mode="HTML",
+    )
+
+
 @router.message(Command("menuadmin"))
 async def admin_command_menu(message: types.Message) -> None:
     user_id = getattr(getattr(message, "from_user", None), "id", None)
@@ -676,7 +706,7 @@ async def admin_command_menu(message: types.Message) -> None:
         "/perf — Performance metrics\n"
         "/session — Runtime/session metrics\n"
         "/connectadminmusic — Connect group pemantau private-user music\n"
-        "/totalusermusic — Jumlah pengguna unik MusiX sahaja\n"
+        "/totalusermusic — Jumlah pengguna unik MusiX sahaja\n/workerstats — Statistik percubaan home worker (owner sahaja)\n"
         "/menuadmin — Paparkan menu command admin ini\n\n"
         "⚠️ /connectadminmusic, /totalusermusic dan /menuadmin hanya untuk owner."
     )
