@@ -105,6 +105,7 @@ class HomeAudioHeartbeat(Base):
     __tablename__ = "home_audio_heartbeats"
     worker_id = Column(Text, primary_key=True)
     last_seen_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    ready = Column(Boolean, nullable=False, default=True, server_default=sa.text("true"))
 
 
 class User(Base):
