@@ -36,7 +36,7 @@ def _valid_worker_id(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_-]{1,48}", value))
 
 
-async def record_heartbeat(db, worker_id: str) -> None:
+async def record_heartbeat(db, worker_id: str, ready: bool = True) -> None:
     if not _valid_worker_id(worker_id):
         raise ValueError("Invalid worker ID")
     async with db.SessionLocal() as session:
@@ -44,8 +44,9 @@ async def record_heartbeat(db, worker_id: str) -> None:
             item = await session.get(HomeAudioHeartbeat, worker_id)
             if item:
                 item.last_seen_at = now()
+                item.ready = bool(ready)
             else:
-                session.add(HomeAudioHeartbeat(worker_id=worker_id, last_seen_at=now()))
+                session.add(HomeAudioHeartbeat(worker_id=worker_id, last_seen_at=now(), ready=bool(ready)))
 
 
 async def is_online(db) -> bool:
@@ -53,7 +54,8 @@ async def is_online(db) -> bool:
     async with db.SessionLocal() as session:
         count = await session.scalar(
             select(func.count()).select_from(HomeAudioHeartbeat).where(
-                HomeAudioHeartbeat.last_seen_at >= cutoff
+                HomeAudioHeartbeat.last_seen_at >= cutoff,
+                HomeAudioHeartbeat.ready.is_(True)
             )
         )
         return bool(count)
@@ -217,6 +219,10 @@ async def stats(db) -> dict:
                 "rate": round(100 * counts.get("done", 0) / terminal, 1) if terminal else 0.0,
             }
         last = await session.scalar(select(func.max(HomeAudioHeartbeat.last_seen_at)))
+        ready = await session.scalar(select(func.count()).select_from(HomeAudioHeartbeat).where(
+            HomeAudioHeartbeat.last_seen_at >= current - timedelta(seconds=180),
+            HomeAudioHeartbeat.ready.is_(True),
+        ))
     rows["last_heartbeat"] = last.isoformat() if last else None
-    rows["online"] = bool(last and last >= current - timedelta(seconds=180))
+    rows["online"] = bool(ready)
     return rows
