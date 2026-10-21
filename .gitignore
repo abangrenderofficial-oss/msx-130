@@ -192,3 +192,7 @@ CLAUDE.md
 .mimocode/
 backups/
 .serena/
+
+# MusiX Bright Data daily paid-browser safety counter
+.musix_brightdata_daily_usage.json
+.musix_brightdata_daily_usage.tmp

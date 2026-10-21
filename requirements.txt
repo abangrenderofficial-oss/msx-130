@@ -18,3 +18,6 @@ yt-dlp-getpot-wpc==1.1.2
 
 # Bundled Node.js for byte-for-byte MediaX YouTube JS; Musix remains Python.
 nodejs-wheel==22.20.0
+
+# Bright Data remote Chrome CDP; browser binary runs on Bright Data, not Musix.
+playwright==1.64.0

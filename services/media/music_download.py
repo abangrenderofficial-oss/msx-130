@@ -2098,6 +2098,22 @@ async def _download_mp3(
                 )
                 _clear_ytdlp_outputs(out_template)
 
+        # Optional paid Bright Data fallback: preserves all existing YouTube routes.
+        # Uses the highest-bitrate complete source audio stream (SABR/UMP),
+        # not audio recording. Off by default to protect paid browser credits.
+        if _env_truthy("MUSIX_BRIGHTDATA_DIRECT_ENABLED") and os.getenv("BRIGHTDATA_BROWSER_WS"):
+            try:
+                from services.media.brightdata_direct_audio import download_best_audio_mp3
+
+                logging.info("Trying Bright Data direct audio with smart bitrate selection")
+                return await download_best_audio_mp3(url, out_template, bitrate_kbps)
+            except Exception as exc:
+                logging.warning(
+                    "Bright Data direct audio unavailable (%s); keeping legacy fallbacks",
+                    type(exc).__name__,
+                )
+                _clear_ytdlp_outputs(out_template)
+
         # Legacy worker and public relays remain available when local extraction
         # is blocked by a YouTube upstream authentication/IP challenge.
         worker_error: Exception | None = None
