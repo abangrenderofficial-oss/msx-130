@@ -15,7 +15,7 @@ class DummyMessage:
 
 
 @pytest.mark.asyncio
-async def test_clearall_sweeps_untracked_text_and_preserves_playlist_audio(monkeypatch):
+async def test_clearall_deletes_tracked_text_only_and_preserves_playlist_audio(monkeypatch):
     message = DummyMessage()
     message.message_id = 220
     fake_db = SimpleNamespace(
@@ -38,6 +38,15 @@ async def test_clearall_sweeps_untracked_text_and_preserves_playlist_audio(monke
 
     monkeypatch.setattr(group_music, "db", fake_db)
     monkeypatch.setattr(group_music, "bot", fake_bot)
+    monkeypatch.setattr(
+        group_music, "get_text_message_ids", AsyncMock(return_value={204, 205}),
+    )
+    monkeypatch.setattr(group_music, "remove_text_entries", AsyncMock())
+    from services import admin_music_monitor
+    monkeypatch.setattr(
+        admin_music_monitor, "get_admin_music_monitor_group",
+        AsyncMock(return_value=(None, None)),
+    )
     monkeypatch.setattr(group_music, "_CLEARALL_SWEEP_LIMIT", 20)
     monkeypatch.setattr(group_music, "_CLEARALL_SWEEP_MARGIN", 3)
     monkeypatch.setattr(
@@ -56,16 +65,15 @@ async def test_clearall_sweeps_untracked_text_and_preserves_playlist_audio(monke
     }
     # Explicit tracked/source ids survive deploy gaps and the range sweep also
     # catches untracked bot errors/text between the song audios and /clearall.
-    assert {101, 102, 103}.issubset(deleted_ids)
-    assert set(range(202, 221)).issubset(deleted_ids)
+    assert {101, 102}.issubset(deleted_ids)
+    assert 103 not in deleted_ids  # legacy source might be audio with caption
+    assert {204, 205, 220}.issubset(deleted_ids)
+    assert 203 not in deleted_ids  # no broad message-ID sweep
     assert 200 not in deleted_ids
     assert 201 not in deleted_ids
     fake_bot.delete_message.assert_not_awaited()
 
-    fake_db.mark_music_group_links_cleared.assert_awaited_once_with(
-        message.chat.id,
-        [103],
-    )
+    fake_db.mark_music_group_links_cleared.assert_not_awaited()
     fake_db.remove_music_group_cleanup_messages.assert_awaited_once()
 
 
@@ -77,7 +85,8 @@ async def test_reply_tracked_records_bot_text(monkeypatch):
     fake_db = SimpleNamespace(add_music_group_cleanup_message=AsyncMock())
 
     monkeypatch.setattr(group_music, "db", fake_db)
-
+    from services import music_chat_cleanup
+    monkeypatch.setattr(music_chat_cleanup, "track_bot_text", AsyncMock())
     await group_music._reply_tracked(message, "hello")
 
     fake_db.add_music_group_cleanup_message.assert_awaited_once_with(
@@ -100,6 +109,8 @@ async def test_connectmusic_can_be_used_by_regular_group_member(monkeypatch):
 
     monkeypatch.setattr(group_music, "db", fake_db)
     monkeypatch.setattr(group_music, "_ensure_group_record", AsyncMock())
+    from services import music_chat_cleanup
+    monkeypatch.setattr(music_chat_cleanup, "track_bot_text", AsyncMock())
     monkeypatch.setattr(group_music, "_require_group_admin", admin_gate)
 
     await group_music.connect_music_group(message)
@@ -115,7 +126,7 @@ async def test_connectmusic_can_be_used_by_regular_group_member(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_clearall_preserves_duplicate_audio_and_cleans_old_quality_caption(monkeypatch):
+async def test_clearall_preserves_duplicate_audio_and_does_not_touch_caption(monkeypatch):
     message = DummyMessage()
     message.message_id = 220
     raw_tracks = [
@@ -164,6 +175,13 @@ async def test_clearall_preserves_duplicate_audio_and_cleans_old_quality_caption
 
     monkeypatch.setattr(group_music, "db", fake_db)
     monkeypatch.setattr(group_music, "bot", fake_bot)
+    monkeypatch.setattr(group_music, "get_text_message_ids", AsyncMock(return_value={204}))
+    monkeypatch.setattr(group_music, "remove_text_entries", AsyncMock())
+    from services import admin_music_monitor
+    monkeypatch.setattr(
+        admin_music_monitor, "get_admin_music_monitor_group",
+        AsyncMock(return_value=(None, None)),
+    )
     monkeypatch.setattr(group_music, "_CLEARALL_SWEEP_LIMIT", 50)
     monkeypatch.setattr(group_music, "_CLEARALL_SWEEP_MARGIN", 3)
     monkeypatch.setattr(
@@ -184,18 +202,5 @@ async def test_clearall_preserves_duplicate_audio_and_cleans_old_quality_caption
     assert 200 not in deleted_ids
     assert 201 not in deleted_ids
 
-    edited_message_ids = {
-        call.kwargs["message_id"]
-        for call in fake_bot.edit_message_media.await_args_list
-    }
-    assert {180, 200, 201}.issubset(edited_message_ids)
-
-    youtube_edit = next(
-        call
-        for call in fake_bot.edit_message_media.await_args_list
-        if call.kwargs["message_id"] == 180
-    )
-    media = youtube_edit.kwargs["media"]
-    assert media.title == "énau feat. Ari Lesmana - Sesi Potret"
-    assert "Original Quality" not in (media.caption or "")
-    assert "Lirik" not in (media.caption or "")
+    fake_bot.edit_message_media.assert_not_awaited()
+    fake_bot.edit_message_caption.assert_not_awaited()

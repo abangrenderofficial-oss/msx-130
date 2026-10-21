@@ -418,7 +418,11 @@ class MemoryDataBase:
         self,
         group_id: int,
     ) -> list[int]:
-        return sorted(self._music_cleanup_messages.get(int(group_id), {}))
+        return sorted(
+            message_id
+            for message_id, kind in self._music_cleanup_messages.get(int(group_id), {}).items()
+            if kind in {"bot_text", "command"}
+        )
 
     async def remove_music_group_cleanup_messages(
         self,

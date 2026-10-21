@@ -43,7 +43,6 @@ from services.logger import logger as logging, summarize_url_for_log
 from services.admin_music_monitor import mirror_private_audio_to_admin_group
 from services.private_music_playlist import record_private_audio
 from services.media.audio_metadata import build_audio_filename, prepare_mp3_metadata
-from services.music_group_dedupe import duplicate_keeper_message_id
 from services.media.delivery import send_audio_with_thumbnail
 from services.storage.music_cache import (
     get_cached_audio,
@@ -89,6 +88,17 @@ def _clean_youtube_title(value: object) -> str:
     return title or "Audio"
 
 
+def _music_audio_caption(title: object, *, service_name: str = "youtube") -> str:
+    """A two-line caption shared by downloaded, cached, and worker-delivered audio."""
+    raw_title = html.unescape(str(title or "Audio")).strip()
+    if service_name == "youtube":
+        raw_title = _clean_youtube_title(raw_title)
+        # Strip the known uploader credit for this track, not arbitrary artists.
+        raw_title = re.sub(r"\s+and\s+25Hzz$", "", raw_title, flags=re.IGNORECASE).strip()
+    visible_title = raw_title or "Audio"
+    return f"🎵 {html.escape(visible_title)}\n@abangrender_musicdownloaderbot"
+
+
 async def _enforce_youtube_clean_fast_message(
     *,
     chat_id: int,
@@ -106,7 +116,7 @@ async def _enforce_youtube_clean_fast_message(
     media_kwargs: dict[str, object] = {
         "media": str(file_id),
         "title": clean_title,
-        "caption": f"🎵 {html.escape(clean_title)}",
+        "caption": _music_audio_caption(clean_title),
         "parse_mode": "HTML",
     }
     if performer:
@@ -137,7 +147,7 @@ async def _enforce_youtube_clean_fast_message(
         caption_kwargs: dict[str, object] = {
             "chat_id": chat_id,
             "message_id": int(message_id),
-            "caption": f"🎵 {html.escape(clean_title)}",
+            "caption": _music_audio_caption(clean_title),
             "parse_mode": "HTML",
         }
         if business_connection_id:
@@ -251,8 +261,7 @@ def _social_audio_caption(
     title: str,
     _quality_label: str,
 ) -> str:
-    del service_name
-    return f"🎵 {html.escape(title)}"
+    return _music_audio_caption(title, service_name=service_name)
 
 
 async def _enforce_worker_title_only_caption(
@@ -524,60 +533,6 @@ async def process_music_link(
 
         candidate_message_id = int(audio_message_id)
 
-        async def _drop_if_duplicate() -> bool:
-            try:
-                raw_lister = getattr(db, "list_music_group_tracks_raw", None)
-                if callable(raw_lister):
-                    tracks = list(await raw_lister(message.chat.id))
-                else:
-                    tracks = list(await db.list_music_group_tracks(message.chat.id))
-                keeper_id = duplicate_keeper_message_id(
-                    tracks,
-                    candidate_audio_message_id=candidate_message_id,
-                    service=service_name,
-                    source_url=source_url,
-                    title=title,
-                    performer=performer,
-                    telegram_file_id=file_id,
-                )
-            except Exception as exc:
-                logging.debug(
-                    "Group duplicate check failed: group=%s source=%s error=%s",
-                    message.chat.id,
-                    service_name,
-                    exc,
-                )
-                return False
-
-            if keeper_id == candidate_message_id:
-                return False
-
-            for stale_message_id in (
-                candidate_message_id,
-                getattr(message, "message_id", None),
-            ):
-                if stale_message_id is None:
-                    continue
-                try:
-                    await bot.delete_message(
-                        message.chat.id,
-                        int(stale_message_id),
-                    )
-                except Exception:
-                    pass
-            logging.info(
-                "Group duplicate audio removed: group=%s source=%s "
-                "removed=%s keeper=%s",
-                message.chat.id,
-                service_name,
-                candidate_message_id,
-                keeper_id,
-            )
-            return True
-
-        if await _drop_if_duplicate():
-            return
-
         try:
             parsed_duration = float(duration) if duration is not None else None
         except (TypeError, ValueError):
@@ -597,7 +552,6 @@ async def process_music_link(
                 source_message_id=message.message_id,
                 audio_message_id=candidate_message_id,
             )
-            await _drop_if_duplicate()
         except Exception as exc:
             logging.warning(
                 "Group playlist record failed: group=%s source=%s error=%s",
@@ -766,7 +720,7 @@ async def process_music_link(
                         audio=str(remote_cached["telegram_file_id"]),
                         title=cached_title,
                         performer=cached_performer,
-                        caption=f"🎵 {html.escape(cached_title)}",
+                        caption=_music_audio_caption(cached_title),
                         bot_url=bot_url,
                         duration=cached_duration,
                         parse_mode="HTML",
@@ -916,7 +870,7 @@ async def process_music_link(
                         audio=str(shared_result["file_id"]),
                         title=shared_title,
                         performer=shared_performer,
-                        caption=f"🎵 {html.escape(shared_title)}",
+                        caption=_music_audio_caption(shared_title),
                         bot_url=bot_url,
                         duration=shared_duration,
                         parse_mode="HTML",
@@ -1372,7 +1326,7 @@ async def process_music_link(
                 audio=cached_file_id,
                 title=display_title,
                 performer=metadata.performer,
-                caption=f"🎵 {html.escape(display_title)}",
+                caption=_music_audio_caption(display_title, service_name=service_name),
                 bot_url=bot_url,
                 duration=metadata.duration,
                 parse_mode="HTML",
@@ -1443,15 +1397,12 @@ async def process_music_link(
             if total_parts > 1:
                 title = f"{display_title} — Part {index}"
                 filename_title = f"{display_title} — Part {index}"
-                caption = (
-                    f"🎵 {html.escape(display_title)}\n"
-                    f"Part {index}/{total_parts} • {result.bitrate_kbps} kbps"
-                )
+                caption = _music_audio_caption(display_title, service_name=service_name)
                 duration = None
             else:
                 title = display_title
                 filename_title = display_title
-                caption = f"🎵 {html.escape(display_title)}\n{result.bitrate_kbps} kbps"
+                caption = _music_audio_caption(display_title, service_name=service_name)
                 duration = metadata.duration
 
             stage_started = time.perf_counter()

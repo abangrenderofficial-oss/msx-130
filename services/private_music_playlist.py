@@ -12,7 +12,6 @@ from services.logger import logger as logging
 from services.music_group_dedupe import (
     clean_music_title,
     dedupe_music_group_tracks,
-    duplicate_keeper_message_id,
 )
 from services.storage.music_cache import (
     add_remote_music_group_track,
@@ -145,51 +144,6 @@ async def record_private_audio(
     user_id = int(user.id)
     candidate_message_id = int(audio_message_id)
     clean_title = clean_music_title(title)
-
-    try:
-        raw_tracks = await list_private_tracks_raw(user_id)
-        keeper_id = duplicate_keeper_message_id(
-            raw_tracks,
-            candidate_audio_message_id=candidate_message_id,
-            service=service,
-            source_url=source_url,
-            title=clean_title,
-            performer=performer,
-            telegram_file_id=file_id,
-        )
-    except Exception as exc:
-        logging.debug(
-            "Private duplicate check failed: user=%s service=%s error=%s",
-            user_id,
-            service,
-            exc,
-        )
-        raw_tracks = []
-        keeper_id = candidate_message_id
-
-    if keeper_id != candidate_message_id:
-        for stale_message_id in (
-            candidate_message_id,
-            getattr(message, "message_id", None),
-        ):
-            if stale_message_id is None:
-                continue
-            try:
-                await bot.delete_message(
-                    message.chat.id,
-                    int(stale_message_id),
-                )
-            except Exception:
-                pass
-        logging.info(
-            "Private duplicate audio removed: user=%s service=%s "
-            "removed=%s keeper=%s",
-            user_id,
-            service,
-            candidate_message_id,
-            keeper_id,
-        )
-        return False
 
     try:
         parsed_duration = (

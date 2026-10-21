@@ -2052,6 +2052,31 @@ async def _download_mp3(
     out_template = os.path.join(work_dir, "source.%(ext)s")
 
     if source == "youtube":
+        # Safe, opt-in video-first route. Keep legacy audio/worker fallbacks
+        # untouched unless independent video acquisition is verified.
+        if _env_truthy("MUSIX_YOUTUBE_VIDEO_FIRST_ENABLED"):
+            try:
+                from services.media.youtube_video_first import download_video_first_mp3
+                from services.media.youtube_video_nodes import configured_nodes, download_from_worker_nodes
+
+                # Remote nodes have independent access/cookie contexts, unlike
+                # repeated attempts from this same hosting IP. No nodes JSON
+                # means the original single-node Video-First behaviour.
+                nodes = configured_nodes()
+                if nodes:
+                    logging.info("Attempting multi-node Video-First extraction; configured_nodes=%s", len(nodes))
+                    return await download_from_worker_nodes(
+                        url, out_template, bitrate_kbps, nodes=nodes,
+                    )
+                logging.info("Attempting isolated local Video-First extraction")
+                return await download_video_first_mp3(url, out_template, bitrate_kbps)
+            except Exception as exc:
+                logging.warning(
+                    "Video-first unavailable (%s); falling back to existing routes",
+                    type(exc).__name__,
+                )
+                _clear_ytdlp_outputs(out_template)
+
         # Bot Hosting may extract directly, using its local cookie file and Deno.
         # On older Render deployments leave this disabled to preserve routing.
         local_error: Exception | None = None
@@ -2070,6 +2095,22 @@ async def _download_mp3(
                 logging.warning(
                     "Bot Hosting local yt-dlp failed; falling back to configured worker: error=%s",
                     str(exc)[-350:],
+                )
+                _clear_ytdlp_outputs(out_template)
+
+        # Optional paid Bright Data fallback: preserves all existing YouTube routes.
+        # Uses the highest-bitrate complete source audio stream (SABR/UMP),
+        # not audio recording. Off by default to protect paid browser credits.
+        if _env_truthy("MUSIX_BRIGHTDATA_DIRECT_ENABLED") and os.getenv("BRIGHTDATA_BROWSER_WS"):
+            try:
+                from services.media.brightdata_direct_audio import download_best_audio_mp3
+
+                logging.info("Trying Bright Data direct audio with smart bitrate selection")
+                return await download_best_audio_mp3(url, out_template, bitrate_kbps)
+            except Exception as exc:
+                logging.warning(
+                    "Bright Data direct audio unavailable (%s); keeping legacy fallbacks",
+                    type(exc).__name__,
                 )
                 _clear_ytdlp_outputs(out_template)
 

@@ -301,3 +301,22 @@ If Downloader-Bot saves you time, you can support ongoing development and infras
 ## License
 
 Released under the [MIT License](./LICENCE).
+
+### MusiX Bright Data direct audio (opt-in)
+
+For YouTube cache misses that fail the existing video-first and local yt-dlp paths,
+set `BRIGHTDATA_BROWSER_WS` to the **secret** Bright Data Browser API CDP WebSocket URL
+and `MUSIX_BRIGHTDATA_DIRECT_ENABLED=1` to use the direct SABR/UMP audio fallback.
+Playwright connects to remote Chrome, so no local browser installation is needed.
+The downloader inspects YouTube's available audio-only formats, ranks them by
+**source bitrate** (codec tie-break), extracts the highest-bitrate **complete**
+compressed media stream that actually arrived, validates source byte count and
+duration, and converts it to the existing MusiX MP3 target. It does NOT capture
+playback or record audio. MP3 encoding bitrate is not a claim of enhanced source
+quality. On an error or incomplete stream, existing fallbacks continue unchanged.
+
+**Paid usage safeguard:** Disabled by default. When enabled, the default maximum
+is **five Browser API sessions per UTC day** per deployment, including failed
+sessions; change via `MUSIX_BRIGHTDATA_MAX_DAILY_SESSIONS`. Each browser session
+may consume Bright Data traffic credits. This is a fallback, not a replacement for
+Telegram file_id cache or legacy source handlers. No account cookies needed.
