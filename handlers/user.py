@@ -15,6 +15,7 @@ from services.stats.chart import _render_stats  # noqa: F401
 from handlers import commands as cmd_mod
 from handlers import media_download as media_mod
 from handlers import settings_menu as settings_mod
+from services import payping_affiliate
 
 router = Router(name=__name__)
 
@@ -28,7 +29,49 @@ _MESSAGE_NOT_MODIFIED_MARKERS = (
 
 # Route definitions
 router.message(Command("start"))(cmd_mod.send_welcome)
+
+async def affiliate_command(message):
+    """Owner-configured commissions, with registration verified from Telegram itself."""
+    from handlers.utils import get_bot_username
+
+    if message.chat.type != "private":
+        await message.reply("📨 Buka private chat MusiX dan guna /affiliate untuk program referral.")
+        return
+    if not payping_affiliate.configured():
+        await message.reply("Program affiliate MusiX belum disambungkan ke PayPing. Cuba semula selepas admin aktifkan.")
+        return
+    text = (message.text or "").strip()
+    tokens = text.split()
+    try:
+        if len(tokens) == 3 and tokens[1].lower() == "link":
+            import re
+            code = tokens[2].upper()
+            if not re.fullmatch(r"[0-9A-F]{20}", code):
+                await message.reply("Kod tak sah. Guna: /affiliate link KOD_DARI_PAYPING")
+                return
+            out = await payping_affiliate.link_account(message.from_user.id, message.from_user.username, code)
+            await message.reply("✅ Akaun PayPing telah dipautkan kepada Telegram ini.\nReferral code: "+out["referralCode"])
+            return
+        if len(tokens) > 1:
+            await message.reply("Guna /affiliate untuk daftar, atau /affiliate link KOD untuk pautkan dashboard PayPing.")
+            return
+        out = await payping_affiliate.register(message.from_user.id, message.from_user.username)
+        name = await get_bot_username(bot)
+        referral = "https://t.me/"+name+"?start=ref_"+str(message.from_user.id)
+        await message.reply(
+            "🤝 Affiliate MusiX\n\n"
+            "Referral anda:\n"+referral+"\n\n"
+            "Komisen hanya dikira apabila user JOIN melalui link ini dan pembayaran SUPPORT berjaya. "
+            "Tahap dan amaun RM diurus dalam PayPing Aurora. "
+            "Gunakan /affiliate link KOD untuk pautkan dashboard website."
+        )
+    except payping_affiliate.AffiliateBridgeError as exc:
+        logging.warning("Affiliate command: %s", type(exc).__name__)
+        await message.reply("⚠️ Affiliate belum dapat disahkan oleh PayPing: "+str(exc))
+
+
 router.message(Command("help"))(cmd_mod.send_help)
+router.message(Command("affiliate"))(affiliate_command)
 router.my_chat_member()(cmd_mod.handle_bot_membership)
 router.message(Command("remove_keyboard"))(cmd_mod.remove_reply_keyboard)
 router.message(Command("stats"))(cmd_mod.stats_command)
