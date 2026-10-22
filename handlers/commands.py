@@ -15,6 +15,7 @@ from services.stats.chart import (
     _handle_stats_update,
 )
 import handlers.user as user_mod
+from services import payping_affiliate
 
 logging = logging.bind(service="user_commands")
 
@@ -124,6 +125,14 @@ async def send_welcome(message: types.Message):
         await user_mod.update_info(message, referred_by=referred_by, source=source)
     else:
         await user_mod.update_info(message)
+
+    if referred_by is not None and payping_affiliate.configured():
+        try:
+            result = await payping_affiliate.record_join(message.from_user.id, referred_by)
+            logging.info("PayPing MusiX referral join tracked: new=%s", result.get("newReferral"))
+        except Exception as exc:
+            # Telegram welcome must remain available even if PayPing is down.
+            logging.warning("PayPing MusiX referral join not recorded: %s", type(exc).__name__)
 
     bot_username = await get_bot_username(user_mod.bot)
     await message.reply(
